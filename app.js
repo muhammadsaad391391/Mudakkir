@@ -90,6 +90,12 @@ class StateManager {
       const data = localStorage.getItem(this.storageKey);
       if (data) {
         const parsed = JSON.parse(data);
+        if (!parsed.version || parsed.version < 3) {
+          console.log("Upgrading state to September 2026 (v3)...");
+          const freshState = this.createInitialState();
+          this.save(freshState);
+          return freshState;
+        }
         if (parsed.completedPages) {
           parsed.completedPages = Array.from(new Set(parsed.completedPages));
         }
@@ -151,6 +157,16 @@ class StateManager {
       const id = `${item.y}-${String(item.m).padStart(2, '0')}`;
 
       const standard = STANDARD_PARA_PAGES[item.para];
+      
+      let status = "future";
+      let completionDate = null;
+      if (id === "2026-09") {
+        status = "active";
+      } else if (id < "2026-09") {
+        status = "completed";
+        completionDate = "2026-08-31";
+      }
+
       monthlyGoals.push({
         id,
         month: item.m,
@@ -162,21 +178,29 @@ class StateManager {
         calendarDays,
         sundays,
         hifzDays,
-        status: index === 0 ? "active" : "future",
-        completionDate: null
+        status,
+        completionDate
       });
     });
 
     // Seed Completed pages:
-    // A. Para 1 completed pages 1 to 8
-    const completedPages = [1, 2, 3, 4, 5, 6, 7, 8];
+    // A. Para 1 completed (pages 1 to 22)
+    const completedPages = [];
+    for (let p = 1; p <= 22; p++) {
+      completedPages.push(p);
+    }
 
-    // B. Para 29 completed 5 pages (563, 564, 565, 566, 567 as range starts on 563)
+    // B. Para 2: 2 pages done on Sep 1 and Sep 2 (pages 23, 24, 25, 26)
+    for (let p = 23; p <= 26; p++) {
+      completedPages.push(p);
+    }
+
+    // C. Para 29 completed 5 pages (563, 564, 565, 566, 567)
     for (let p = 563; p <= 567; p++) {
       completedPages.push(p);
     }
 
-    // C. Para 30 completed pages 587 to end (611)
+    // D. Para 30 completed pages 587 to end (611)
     for (let p = 587; p <= 611; p++) {
       completedPages.push(p);
     }
@@ -186,23 +210,71 @@ class StateManager {
       augGoal.startPage = 1;
       augGoal.endPage = 22;
       augGoal.targetPages = 22;
+      augGoal.status = "completed";
+      augGoal.completionDate = "2026-08-31";
     }
 
-    const dailyRecords = {};
+    const sepGoal = monthlyGoals.find(g => g.id === "2026-09");
+    if (sepGoal) {
+      sepGoal.startPage = 23;
+      sepGoal.endPage = 42;
+      sepGoal.targetPages = 20;
+      sepGoal.status = "active";
+    }
+
+    const dailyRecords = {
+      "2026-09-01": {
+        date: "2026-09-01",
+        monthlyGoalId: "2026-09",
+        sabaq: "Para 2 · Pages 23–24",
+        sabaqCompleted: true,
+        sabaqConfidence: "okay",
+        sabqi: "Para 1 · Pages 1–22",
+        sabqiCompleted: true,
+        sabqiConfidence: "okay",
+        manzil: "Para 30",
+        manzilCompleted: true,
+        sessionQuality: 5,
+        notes: "Started Para 2 (Sayaqool). Memorized 2 pages.",
+        missed: false,
+        missedReason: null,
+        isSunday: false,
+        isBufferDay: false
+      },
+      "2026-09-02": {
+        date: "2026-09-02",
+        monthlyGoalId: "2026-09",
+        sabaq: "Para 2 · Pages 25–26",
+        sabaqCompleted: true,
+        sabaqConfidence: "okay",
+        sabqi: "Para 2 · Pages 23–24",
+        sabqiCompleted: true,
+        sabqiConfidence: "okay",
+        manzil: "Para 1",
+        manzilCompleted: true,
+        sessionQuality: 5,
+        notes: "Completed 2 pages of Para 2.",
+        missed: false,
+        missedReason: null,
+        isSunday: false,
+        isBufferDay: false
+      }
+    };
 
     const weakSpots = [
-      { id: "ws-1", date: "2026-08-05", page: 4, para: 1, task: "sabaq", note: "Struggled with the middle verse transitions.", resolved: false }
+      { id: "ws-1", date: "2026-09-01", page: 24, para: 2, task: "sabaq", note: "Review verse transitions.", resolved: false }
     ];
 
     return {
+      version: 3,
       settings: { ...DEFAULT_SETTINGS },
       monthlyGoals,
       dailyRecords,
       completedPages: Array.from(new Set(completedPages)),
       weakSpots,
       streakData: {
-        currentStreak: 0,
-        longestStreak: 8,
+        currentStreak: 2,
+        longestStreak: 2,
         freezesRemaining: 2,
         freezeHistory: []
       }
@@ -577,7 +649,7 @@ function generateGraphData(goal, metrics, dailyRecords) {
           points.actual.push({ x: d, y: cumulativeActual });
         }
       } else {
-        if (rec) {
+        if (rec || d === limitDay) {
           points.actual.push({ x: d, y: cumulativeActual });
         }
       }
