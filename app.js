@@ -858,6 +858,64 @@ function renderDashboard(container) {
 
     bodyHtml = `
       <div class="dashboard-container">
+        <!-- 1. Overall Hifz Progress at the Top -->
+        <div class="card pattern-bg overall-progress-card" style="grid-column: 1 / -1;">
+          <div class="flex justify-between align-center" style="margin-bottom: 16px;">
+            <div class="flex align-center gap-2">
+              <span style="font-size: 1.25rem;">📖</span>
+              <h3 style="font-size: 1.1rem; color: var(--text-main); font-weight: 700; margin: 0;">Overall Hifz Progress</h3>
+            </div>
+            <span class="badge badge-active" style="background-color: var(--primary-color); color: #fff; font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
+              Full Quran (611 Pages)
+            </span>
+          </div>
+
+          <div class="flex align-center gap-4" style="margin-bottom: 16px; flex-wrap: wrap;">
+            <!-- Circle Progress Indicator -->
+            <div style="flex-shrink: 0; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; position: relative;">
+              <svg viewBox="0 0 100 100" width="80" height="80">
+                <circle cx="50" cy="50" r="42" fill="none" stroke="var(--border-color)" stroke-width="8"/>
+                <circle id="overall-circle-fill" cx="50" cy="50" r="42" fill="none" stroke="var(--secondary-color)" stroke-width="8"
+                        stroke-dasharray="263.89" stroke-dashoffset="${initialOffset}" stroke-linecap="round"
+                        style="transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1); transform: rotate(-90deg); transform-origin: 50% 50%;"/>
+              </svg>
+              <div id="overall-circle-text" style="position: absolute; font-family: var(--font-brand); font-size: 0.95rem; font-weight: 700; color: var(--text-main); text-align: center; width: 100%;">
+                ${prevPercent.toFixed(1)}%
+              </div>
+            </div>
+            
+            <!-- Metrics Info -->
+            <div style="flex-grow: 1; min-width: 160px;">
+              <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Completion Rate</div>
+              <div id="overall-percent-text" style="font-family: var(--font-brand); font-size: 2rem; font-weight: 800; color: var(--secondary-color); line-height: 1.1;">
+                ${prevPercent.toFixed(1)}%
+              </div>
+            </div>
+
+            <!-- Quick stats tiles -->
+            <div class="flex gap-2" style="flex-wrap: wrap;">
+              <div class="metric-tile" style="padding: 8px 16px; min-width: 120px;">
+                <div class="metric-label" style="font-size: 0.7rem;">Completed</div>
+                <div class="metric-val" style="font-size: 1.1rem; color: var(--text-main);">${prevCount} / 611 p.</div>
+              </div>
+              <div class="metric-tile" style="padding: 8px 16px; min-width: 120px;">
+                <div class="metric-label" style="font-size: 0.7rem;">Juz Completed</div>
+                <div class="metric-val" style="font-size: 1.1rem; color: var(--secondary-color);">${calculateJuzCompletedCount(state.completedPages)} / 30</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Horizontal Progress Bar -->
+          <div class="progress-bar-wrapper" style="height: 10px; border-radius: 5px; background-color: var(--border-color); overflow: hidden; margin-bottom: 12px;">
+            <div id="overall-bar-fill" class="progress-bar-fill" style="width: ${prevPercent.toFixed(1)}%; height: 100%; background-color: var(--secondary-color); transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 5px;"></div>
+          </div>
+          
+          <div class="flex align-center justify-between" style="font-size: 0.85rem; color: var(--text-muted);">
+            <span id="overall-page-count" style="font-weight: 600; font-family: var(--font-brand);">${prevCount} / 611 pages completed</span>
+            <span style="font-weight: 600;">Juz: ${calculateJuzCompletedCount(state.completedPages)} / 30</span>
+          </div>
+        </div>
+
         <div class="dashboard-main-col">
           <div class="card monthly-goal-card pattern-bg">
             <div class="goal-header">
@@ -1076,42 +1134,6 @@ function renderDashboard(container) {
               <span class="flex align-center gap-2"><span style="width: 8px; height: 8px; display: inline-block; background-color: var(--secondary-color);"></span> Actual Memorized</span>
             </div>
           </div>
-
-          <div class="card pattern-bg">
-            <h3 style="font-size: 1rem; color: var(--text-main); font-weight: 600; margin-bottom: 16px;">Overall Hifz Progress</h3>
-            <div class="flex align-center gap-4" style="margin-bottom: 16px;">
-              <!-- Circle Progress Indicator -->
-              <div style="flex-shrink: 0; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; position: relative;">
-                <svg viewBox="0 0 100 100" width="80" height="80">
-                  <circle cx="50" cy="50" r="42" fill="none" stroke="var(--border-color)" stroke-width="8"/>
-                  <circle id="overall-circle-fill" cx="50" cy="50" r="42" fill="none" stroke="var(--secondary-color)" stroke-width="8"
-                          stroke-dasharray="263.89" stroke-dashoffset="${initialOffset}" stroke-linecap="round"
-                          style="transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1); transform: rotate(-90deg); transform-origin: 50% 50%;"/>
-                </svg>
-                <div id="overall-circle-text" style="position: absolute; font-family: var(--font-brand); font-size: 1rem; font-weight: 700; color: var(--text-main);">
-                  ${prevPercent.toFixed(0)}%
-                </div>
-              </div>
-              
-              <!-- Metrics Info -->
-              <div style="flex-grow: 1;">
-                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Completion Rate</div>
-                <div id="overall-percent-text" style="font-family: var(--font-brand); font-size: 1.8rem; font-weight: 800; color: var(--secondary-color);">
-                  ${prevPercent.toFixed(1)}%
-                </div>
-              </div>
-            </div>
-            
-            <!-- Horizontal Progress Bar -->
-            <div class="progress-bar-wrapper" style="height: 10px; border-radius: 5px; background-color: var(--border-color); overflow: hidden; margin-bottom: 12px;">
-              <div id="overall-bar-fill" class="progress-bar-fill" style="width: ${prevPercent.toFixed(1)}%; height: 100%; background-color: var(--secondary-color); transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 5px;"></div>
-            </div>
-            
-            <div class="flex align-center justify-between" style="font-size: 0.85rem; color: var(--text-muted);">
-              <span id="overall-page-count" style="font-weight: 600; font-family: var(--font-brand);">${prevCount} / 611 pages completed</span>
-              <span style="font-weight: 600;">Juz: ${calculateJuzCompletedCount(state.completedPages)} / 30</span>
-            </div>
-          </div>
         </div>
       </div>
     `;
@@ -1147,7 +1169,7 @@ function renderDashboard(container) {
         const easeProgress = 1 - Math.pow(1 - progress, 3);
         const val = startPercent + easeProgress * (targetPercent - startPercent);
         
-        if (circleText) circleText.innerText = `${val.toFixed(0)}%`;
+        if (circleText) circleText.innerText = `${val.toFixed(1)}%`;
         if (percentText) percentText.innerText = `${val.toFixed(1)}%`;
         if (pageCount) {
           const pages = Math.round(prevCount + easeProgress * (currentCount - prevCount));
@@ -1178,7 +1200,7 @@ function renderDashboard(container) {
       if (circle) {
         circle.style.strokeDashoffset = `${circumference - (circumference * currentPercent / 100)}`;
       }
-      if (circleText) circleText.innerText = `${currentPercent.toFixed(0)}%`;
+      if (circleText) circleText.innerText = `${currentPercent.toFixed(1)}%`;
       if (percentText) percentText.innerText = `${currentPercent.toFixed(1)}%`;
       if (pageCount) pageCount.innerText = `${currentCount} / 611 pages completed`;
     }, 50);

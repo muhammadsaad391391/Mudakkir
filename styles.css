@@ -489,6 +489,13 @@ body:not(.dark-mode) .dark-only { display: none !important; }
   box-shadow: var(--shadow-medium);
 }
 
+/* Overall Progress Card */
+.overall-progress-card {
+  grid-column: 1 / -1;
+  position: relative;
+  overflow: hidden;
+}
+
 /* Monthly Goal Card */
 .monthly-goal-card {
   position: relative;
