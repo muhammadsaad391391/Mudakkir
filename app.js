@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Mudakkir — Unified Single-File Application Logic
+   Muddakir — Unified Single-File Application Logic
    ========================================================================== */
 
 // 1. DATA CONSTANTS & METADATA (Updated to exact page ranges & Para names)
@@ -826,6 +826,36 @@ function renderDashboard(container) {
     const percentStr = metrics.percentComplete.toFixed(0);
     const paceClass = metrics.bufferState.toLowerCase();
 
+    // Calculate Efficiency from 1st September onwards
+    const sepGoal = state.monthlyGoals.find(g => g.id === "2026-09");
+    let sepPagesCompleted = 0;
+    if (sepGoal && sepGoal.startPage && sepGoal.endPage) {
+      for (let p = sepGoal.startPage; p <= sepGoal.endPage; p++) {
+        if (state.completedPages.includes(p)) sepPagesCompleted++;
+      }
+    }
+
+    // Days spent from 1st September onwards up to current day
+    const daysSpentFromSep1 = Math.max(1, (year === 2026 && month === 9) ? day : (year > 2026 || month > 9 ? 30 : 1));
+
+    // Active logged study days from Sep 1 onwards
+    let activeStudyDaysCount = 0;
+    Object.keys(state.dailyRecords).forEach(k => {
+      if (k.startsWith("2026-09") && k <= todayStr) {
+        const r = state.dailyRecords[k];
+        if (r && (r.sabaqCompleted || r.sabaqSkipped || r.sabqiCompleted || r.manzilCompleted) && !r.missed) {
+          activeStudyDaysCount++;
+        }
+      }
+    });
+    if (activeStudyDaysCount === 0) activeStudyDaysCount = 1;
+
+    // Efficiency metrics
+    const efficiencyPace = sepPagesCompleted / daysSpentFromSep1;
+    const activeEfficiencyPace = sepPagesCompleted / activeStudyDaysCount;
+    const targetPace = metrics.requiredPace || 0.77;
+    const paceDiffPercent = targetPace > 0 ? (((efficiencyPace / targetPace) - 1) * 100) : 0;
+
     bodyHtml = `
       <div class="dashboard-container">
         <div class="dashboard-main-col">
@@ -873,6 +903,57 @@ function renderDashboard(container) {
                 <div class="metric-label">Sundays Left</div>
                 <div class="metric-val">${metrics.sundaysRemaining} d.</div>
               </div>
+            </div>
+          </div>
+
+          <!-- Memorization Efficiency Card -->
+          <div class="card efficiency-card pattern-bg" style="border-left: 4px solid var(--secondary-color); background: linear-gradient(135deg, rgba(23, 107, 82, 0.04) 0%, rgba(212, 175, 55, 0.04) 100%); margin-bottom: 20px;">
+            <div class="flex justify-between align-center" style="margin-bottom: 12px;">
+              <div class="flex align-center gap-2">
+                <span style="font-size: 1.25rem;">⚡</span>
+                <h3 style="font-size: 1rem; color: var(--text-main); font-weight: 700; margin: 0;">Memorization Efficiency</h3>
+              </div>
+              <span class="badge badge-active" style="background-color: var(--secondary-color); color: #fff; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; font-weight: 600;">
+                From 1st Sep
+              </span>
+            </div>
+
+            <div class="flex align-center justify-between" style="flex-wrap: wrap; gap: 16px;">
+              <div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Efficiency Rate</div>
+                <div style="display: flex; align-items: baseline; gap: 6px; margin-top: 2px;">
+                  <span style="font-family: var(--font-brand); font-size: 2.2rem; font-weight: 800; color: var(--secondary-color); line-height: 1;">
+                    ${efficiencyPace.toFixed(2)}
+                  </span>
+                  <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">pages / day</span>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <div class="metric-tile" style="padding: 8px 12px; min-width: 95px;">
+                  <div class="metric-label" style="font-size: 0.7rem;">Pages Done</div>
+                  <div class="metric-val" style="font-size: 1.1rem; color: var(--text-main);">${sepPagesCompleted} p.</div>
+                </div>
+                <div class="metric-tile" style="padding: 8px 12px; min-width: 95px;">
+                  <div class="metric-label" style="font-size: 0.7rem;">Days Spent</div>
+                  <div class="metric-val" style="font-size: 1.1rem; color: var(--text-main);">${daysSpentFromSep1} d.</div>
+                </div>
+                <div class="metric-tile" style="padding: 8px 12px; min-width: 105px;">
+                  <div class="metric-label" style="font-size: 0.7rem;">Active Pace</div>
+                  <div class="metric-val" style="font-size: 1.1rem; color: var(--secondary-color);">${activeEfficiencyPace.toFixed(2)} p/d</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-muted); flex-wrap: wrap; gap: 8px;">
+              <span>
+                🎯 Target Pace: <strong style="color: var(--text-main);">${targetPace.toFixed(2)} p/d</strong>
+              </span>
+              <span style="color: ${efficiencyPace >= targetPace ? 'var(--secondary-color)' : 'var(--color-missed)'}; font-weight: 600;">
+                ${efficiencyPace >= targetPace 
+                  ? `🟢 +${paceDiffPercent.toFixed(0)}% Above Target Pace` 
+                  : `🔴 ${paceDiffPercent.toFixed(0)}% Below Target Pace`}
+              </span>
             </div>
           </div>
 
@@ -1963,7 +2044,7 @@ function renderSettings(container) {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db.getState()));
     const dl = document.createElement('a');
     dl.href = dataStr;
-    dl.download = `mudakkir_backup_${new Date().toISOString().split('T')[0]}.json`;
+    dl.download = `muddakir_backup_${new Date().toISOString().split('T')[0]}.json`;
     dl.click();
     showToast("Backup exported.", "success");
   };

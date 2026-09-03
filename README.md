@@ -1,6 +1,6 @@
-# Mudakkir (مُذكِّر) — Hifz Progress Tracker
+# Muddakir (مُدَّكِر) — Hifz Progress Tracker
 
-Mudakkir is a beautiful, distraction-free, privacy-first Single Page Application (SPA) designed to help you track your Quran memorization (Hifz) journey. It provides visual insights, streak counting, and pacing calculations to help you stay consistent and hit your monthly goals.
+Muddakir is a beautiful, distraction-free, privacy-first Single Page Application (SPA) designed to help you track your Quran memorization (Hifz) journey. It provides visual insights, streak counting, and pacing calculations to help you stay consistent and hit your monthly goals.
 
 ## Core Features
 
