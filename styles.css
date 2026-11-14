@@ -1584,3 +1584,22 @@ body:not(.dark-mode) .dark-only { display: none !important; }
     gap: 32px;
   }
 }
+
+/* Project Page Checklist Cells (Dashboard & Project Hub) */
+.project-page-cell,
+.hub-page-cell {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.project-page-cell:hover,
+.hub-page-cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+  border-color: var(--secondary-color) !important;
+}
+
+.project-page-cell:active,
+.hub-page-cell:active {
+  transform: scale(0.95);
+}
+

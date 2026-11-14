@@ -73,22 +73,19 @@ const DEFAULT_SETTINGS = {
   name: "User",
   mushafPages: 611,
   linesPerPage: 15,
-  weeklyRestDay: "Sunday",
+  weeklyRestDay: null,
   theme: "light",
   systemDateOverride: null
 };
 
-// Helper: Calculate projected end date skipping Sundays
-function calculateProjectedEndDate(startDateStr, hifzDaysNeeded) {
-  if (!startDateStr || isNaN(hifzDaysNeeded) || hifzDaysNeeded <= 0) return "";
-  let remaining = Math.round(hifzDaysNeeded);
-  const cur = new Date(startDateStr);
-  while (remaining > 0) {
-    cur.setDate(cur.getDate() + 1);
-    if (cur.getDay() !== 0) { // Skip Sundays
-      remaining--;
-    }
-  }
+// Helper: Calculate projected end date (Sundays are normal study days)
+function calculateProjectedEndDate(startDateStr, daysNeeded) {
+  if (!startDateStr || isNaN(daysNeeded) || daysNeeded <= 0) return "";
+  const parts = startDateStr.split('-').map(Number);
+  if (parts.length !== 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return "";
+  const [y, m, d] = parts;
+  const daysToAdd = Math.max(0, Math.ceil(daysNeeded) - 1);
+  const cur = new Date(Date.UTC(y, m - 1, d + daysToAdd));
   return cur.toISOString().split('T')[0];
 }
 
@@ -104,8 +101,8 @@ class StateManager {
       const data = localStorage.getItem(this.storageKey);
       if (data) {
         const parsed = JSON.parse(data);
-        if (!parsed.version || parsed.version < 4) {
-          console.log("Upgrading state to v4 (Manual Goals, Para 3 active at 0.5 p/d)...");
+        if (!parsed.version || parsed.version < 5) {
+          console.log("Upgrading state to v5 (No default active project, normal Sundays)...");
           const freshState = this.createInitialState();
           this.save(freshState);
           return freshState;
@@ -148,68 +145,53 @@ class StateManager {
     for (let p = 563; p <= 571; p++) completedPages.push(p);
     for (let p = 587; p <= 611; p++) completedPages.push(p);
 
-    const todayStr = new Date().toISOString().split('T')[0];
-
+    // Initial project history (completed milestones)
+    // Note: No active project pre-loaded so user can start their own project freely
     const monthlyGoals = [
       {
-        id: "goal-para-1",
+        id: "project-para-1",
         para: 1,
         name: STANDARD_PARA_PAGES[1].name,
         startPage: 1,
         endPage: 22,
         targetPages: 22,
         startDate: "2026-08-01",
-        targetEndDate: "2026-08-31",
+        targetEndDate: "2026-08-22",
         targetPace: 1.0,
         mode: "duration",
-        targetDays: 26,
+        targetDays: 22,
         status: "completed",
-        completionDate: "2026-08-31"
+        completionDate: "2026-08-22"
       },
       {
-        id: "goal-para-2",
+        id: "project-para-2",
         para: 2,
         name: STANDARD_PARA_PAGES[2].name,
         startPage: 23,
         endPage: 42,
         targetPages: 20,
-        startDate: "2026-09-01",
-        targetEndDate: "2026-09-30",
+        startDate: "2026-08-23",
+        targetEndDate: "2026-09-11",
         targetPace: 1.0,
         mode: "duration",
-        targetDays: 26,
+        targetDays: 20,
         status: "completed",
-        completionDate: "2026-09-30"
+        completionDate: "2026-09-11"
       },
       {
-        id: "goal-para-30",
+        id: "project-para-30",
         para: 30,
         name: STANDARD_PARA_PAGES[30].name,
         startPage: 587,
         endPage: 611,
         targetPages: 25,
         startDate: "2026-07-01",
-        targetEndDate: "2026-07-31",
+        targetEndDate: "2026-07-25",
         targetPace: 1.0,
         mode: "duration",
-        targetDays: 26,
+        targetDays: 25,
         status: "completed",
-        completionDate: "2026-07-31"
-      },
-      {
-        id: "goal-para-3",
-        para: 3,
-        name: STANDARD_PARA_PAGES[3].name,
-        startPage: 43,
-        endPage: 62,
-        targetPages: 20,
-        mode: "pace",
-        targetPace: 0.5,
-        targetDays: 40,
-        startDate: todayStr,
-        targetEndDate: calculateProjectedEndDate(todayStr, 40),
-        status: "active",
-        completionDate: null
+        completionDate: "2026-07-25"
       }
     ];
 
@@ -217,7 +199,7 @@ class StateManager {
     const weakSpots = [];
 
     return {
-      version: 4,
+      version: 5,
       settings: { ...DEFAULT_SETTINGS },
       monthlyGoals,
       dailyRecords,
@@ -381,32 +363,29 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
     result.goalComplete = true;
   }
 
-  // Determine required pace: either explicit targetPace, or computed from targetDays
+  // Determine required pace: either explicit targetPace, or computed from targetDays (Sundays are normal days)
   let requiredPace = 0.5;
   if (goal.targetPace && !isNaN(goal.targetPace)) {
     requiredPace = parseFloat(goal.targetPace);
   } else if (goal.targetDays && !isNaN(goal.targetDays)) {
-    const estHifzDays = Math.max(1, Math.round(goal.targetDays * 6 / 7));
-    requiredPace = targetPages / estHifzDays;
+    const totalDays = Math.max(1, parseInt(goal.targetDays, 10));
+    requiredPace = targetPages / totalDays;
   } else if (goal.calendarDays) {
-    const sundays = goal.sundays || 4;
-    requiredPace = targetPages / Math.max(1, goal.calendarDays - sundays);
+    requiredPace = targetPages / Math.max(1, goal.calendarDays);
   }
   result.requiredPace = parseFloat(requiredPace.toFixed(2));
 
   const totalHifzDays = requiredPace > 0 ? Math.ceil(targetPages / requiredPace) : 30;
   result.hifzDays = totalHifzDays;
 
-  // Study days passed since start date (excluding Sundays)
+  // Study days passed since start date (all days including Sundays are normal study days)
   let hifzDaysPassed = 0;
   const startDateStr = goal.startDate || currentDateStr;
   const startObj = new Date(startDateStr);
   const currObj = new Date(currentDateStr);
   
-  if (currObj > startObj) {
-    for (let d = new Date(startObj); d < currObj; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() !== 0) hifzDaysPassed++;
-    }
+  if (currObj >= startObj) {
+    hifzDaysPassed = Math.round((currObj - startObj) / (1000 * 60 * 60 * 24)) + 1;
   }
   result.hifzDaysPassed = hifzDaysPassed;
 
@@ -422,19 +401,11 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
   const progressBuffer = requiredPace > 0 ? progressDifference / requiredPace : 0;
   result.progressBuffer = parseFloat(progressBuffer.toFixed(1));
   result.bufferDaysRemaining = Math.max(0, totalHifzDays - Math.ceil(targetPages / (requiredPace || 1)));
-
-  // Count remaining Sundays in this month for reference
-  const [currYear, currMonth, currDay] = currentDateStr.split('-').map(Number);
-  const daysInMonth = new Date(currYear, currMonth, 0).getDate();
-  let sundaysRemaining = 0;
-  for (let d = currDay + 1; d <= daysInMonth; d++) {
-    if (new Date(currYear, currMonth - 1, d).getDay() === 0) sundaysRemaining++;
-  }
-  result.sundaysRemaining = sundaysRemaining;
+  result.sundaysRemaining = 0;
 
   if (result.goalComplete) {
     result.bufferState = 'AHEAD';
-    result.bufferText = `🎉 GOAL COMPLETE! You have finished Para ${goal.para}.`;
+    result.bufferText = `🎉 PROJECT COMPLETE! You have finished Para ${goal.para}.`;
   } else if (result.progressDifference >= 0.5) {
     result.bufferState = 'AHEAD';
     result.bufferText = `🟢 ${Math.abs(result.progressBuffer).toFixed(1)} DAYS AHEAD. Target pace: ${requiredPace.toFixed(2)} p/d.`;
@@ -451,13 +422,6 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
 }
 
 function getDayStatus(dateStr, goal, record, isGoalCompleted) {
-  const dateObj = new Date(dateStr);
-  const isSunday = dateObj.getDay() === 0;
-
-  if (isSunday) {
-    return { status: 'sunday', color: 'var(--color-sunday)', label: 'Sunday / OFF' };
-  }
-
   if (isGoalCompleted) {
     if (record && record.sabaqCompleted && record.sabqiCompleted && record.manzilCompleted) {
       return { status: 'complete', color: 'var(--color-complete)', label: 'Complete' };
@@ -504,7 +468,7 @@ function recalculateStreaks(dailyRecords, streakData) {
 
   dates.forEach(date => {
     const rec = dailyRecords[date];
-    if (rec.isSunday || rec.isBufferDay || (rec.missed && rec.missedReason === 'break')) return;
+    if (rec.isBufferDay || (rec.missed && rec.missedReason === 'break')) return;
 
     const sabaqDone = rec.sabaqCompleted || rec.sabaqSkipped;
     const completed = sabaqDone && rec.sabqiCompleted && rec.manzilCompleted;
@@ -826,12 +790,12 @@ function renderDashboard(container) {
     bodyHtml += `
       <div class="card text-center pattern-bg" style="padding: 44px 24px; border: 2px dashed var(--border-color); margin-bottom: 20px;">
         <span style="font-size: 2.5rem; display: block; margin-bottom: 12px;">🎯</span>
-        <h2 style="color: var(--primary-color); margin-bottom: 8px;">No Active Hifz Goal</h2>
+        <h2 style="color: var(--primary-color); margin-bottom: 8px;">No Active Hifz Project</h2>
         <p style="color: var(--text-muted); max-width: 480px; margin: 0 auto 20px; font-size: 1rem; line-height: 1.5;">
-          Choose a Para (e.g. Para 3) and set your pace (e.g. 0.5 pages/day) or target duration (e.g. 30 days) to begin.
+          Choose any Para and set your speed (e.g. 0.5 pages/day) or target duration (e.g. 30 days) to begin. You can even start a project from past dates!
         </p>
         <button id="dashboard-add-first-goal-btn" class="btn btn-primary" style="padding: 10px 24px; font-size: 1rem;">
-          + Create Hifz Goal
+          + Create New Project
         </button>
       </div>
     `;
@@ -842,27 +806,45 @@ function renderDashboard(container) {
       ? `⏱️ Duration Mode (${activeGoal.targetDays || 30} days)` 
       : `🎯 Pace Mode (${activeGoal.targetPace || 0.5} p/d)`;
 
+    // Generate checklist of pages for this project
+    let projectChecklistHtml = '';
+    for (let p = activeGoal.startPage; p <= activeGoal.endPage; p++) {
+      const isDone = state.completedPages.includes(p);
+      projectChecklistHtml += `
+        <div class="project-page-cell ${isDone ? 'done' : ''}" data-page="${p}" title="Click to toggle Page ${p}" style="cursor: pointer; user-select: none; border-radius: 6px; padding: 6px 2px; text-align: center; border: 1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'}; background: ${isDone ? 'rgba(23, 107, 82, 0.12)' : 'var(--card-bg)'}; transition: all 0.15s ease;">
+          <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">P.</div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: ${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">${p}</div>
+          <div style="font-size: 0.7rem; font-weight: bold; color: ${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top: 1px;">
+            ${isDone ? '✓ Done' : '○'}
+          </div>
+        </div>
+      `;
+    }
+
     bodyHtml += `
       <div class="card monthly-goal-card pattern-bg">
         <div class="goal-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
           <div>
-            <span class="goal-month-title" style="display: flex; align-items: center; gap: 8px;">
-              <span>Active Goal</span>
-              <span class="badge" style="background: rgba(23,107,82,0.15); color: var(--secondary-color); font-size: 0.75rem; text-transform: uppercase;">
+            <div class="flex align-center gap-2" style="margin-bottom: 4px;">
+              <span class="badge badge-active" style="background-color: var(--primary-color); color: #fff; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; font-weight: 700;">
+                Active Project
+              </span>
+              <span class="badge" style="background: rgba(23,107,82,0.12); color: var(--secondary-color); font-size: 0.75rem; font-weight: 600;">
                 ${modeBadge}
               </span>
-            </span>
+            </div>
             <h2 class="goal-para-title">
               Para ${activeGoal.para} <span style="font-size: 1.25rem; font-weight: 500; opacity: 0.85;">(${STANDARD_PARA_PAGES[activeGoal.para]?.name || ''})</span>
             </h2>
             <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-brand); margin-top: 2px;">
               Pages ${activeGoal.startPage}–${activeGoal.endPage} (${metrics.targetPages} pages)
+              · Started: <strong>${activeGoal.startDate || todayStr}</strong>
               ${activeGoal.targetEndDate ? `· Projected Finish: <strong>${activeGoal.targetEndDate}</strong>` : ''}
             </div>
           </div>
           <div class="flex gap-2">
-            <button id="dashboard-edit-goal-btn" class="btn btn-outline btn-xs" style="color: #fff; border-color: rgba(255,255,255,0.4);" data-goal-id="${activeGoal.id}">Adjust Goal</button>
-            <button id="dashboard-new-goal-btn" class="btn btn-primary btn-xs" style="background: var(--secondary-color); color: #fff;">+ New Goal</button>
+            <button id="dashboard-edit-goal-btn" class="btn btn-outline btn-xs" style="color: #fff; border-color: rgba(255,255,255,0.4);" data-goal-id="${activeGoal.id}">Edit Project</button>
+            <button id="dashboard-new-goal-btn" class="btn btn-primary btn-xs" style="background: var(--secondary-color); color: #fff;">+ New Project</button>
           </div>
         </div>
 
@@ -875,6 +857,23 @@ function renderDashboard(container) {
             <span class="progress-percent">${percentStr}% Complete</span>
           </div>
         </div>
+
+        <!-- Interactive Project Portion / Page Grid -->
+        <div class="project-checklist-box" style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin: 16px 0;">
+          <div class="flex justify-between align-center" style="margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);">Project Pages Checklist</span>
+              <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 6px;">(Click any page to tick / untick)</span>
+            </div>
+            <button id="dashboard-project-toggle-all-btn" class="btn btn-outline btn-xs" style="font-size: 0.75rem; padding: 2px 8px;">
+              ${metrics.completedPagesCount === metrics.targetPages ? 'Untick All' : 'Tick All Completed'}
+            </button>
+          </div>
+          <div class="project-page-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px;">
+            ${projectChecklistHtml}
+          </div>
+        </div>
+
         <div class="buffer-status-banner ${paceClass}">
           <div class="buffer-indicator">${metrics.bufferState}</div>
           <div class="buffer-explanation">${metrics.bufferText}</div>
@@ -894,8 +893,8 @@ function renderDashboard(container) {
             <div class="metric-val">${metrics.requiredPace.toFixed(2)} p/d</div>
           </div>
           <div class="metric-tile">
-            <div class="metric-label">Hifz Days Left</div>
-            <div class="metric-val">${metrics.hifzDaysRemaining} / ${metrics.hifzDays}</div>
+            <div class="metric-label">Days Left</div>
+            <div class="metric-val">${metrics.hifzDaysRemaining} d.</div>
           </div>
           <div class="metric-tile">
             <div class="metric-label">Target Days</div>
@@ -1050,10 +1049,9 @@ function renderDashboard(container) {
               </div>
             </div>
 
-            ${isSunday ? `<div class="day-banner day-banner-sunday">⚪ Rest Day: Sunday is your official Hifz rest day.</div>` : ''}
             ${metrics && metrics.goalComplete ? `<div class="day-banner day-banner-buffer">🔵 Buffer Day: Target complete! Use today for revision.</div>` : ''}
             
-            ${!isSunday && (!metrics || !metrics.goalComplete) && !todayRecord.sabaqCompleted && !todayRecord.sabqiCompleted && !todayRecord.manzilCompleted && !todayRecord.missed
+            ${(!metrics || !metrics.goalComplete) && !todayRecord.sabaqCompleted && !todayRecord.sabqiCompleted && !todayRecord.manzilCompleted && !todayRecord.missed
               ? `<div class="day-controls-row"><button id="mark-day-missed-btn" class="btn btn-text btn-xs" style="color: var(--color-missed);">Mark Day Missed / Break</button></div>`
               : ''
             }
@@ -1164,6 +1162,48 @@ function renderDashboard(container) {
 
   const addFirstGoalBtn = document.getElementById('dashboard-add-first-goal-btn');
   if (addFirstGoalBtn) addFirstGoalBtn.onclick = () => openRoadmapEditModal(null);
+
+  // Project checklist page cell click handlers
+  document.querySelectorAll('.project-page-cell').forEach(cell => {
+    cell.onclick = () => {
+      const pageNum = parseInt(cell.dataset.page, 10);
+      const idx = state.completedPages.indexOf(pageNum);
+      if (idx !== -1) {
+        state.completedPages.splice(idx, 1);
+        db.save();
+        showToast(`Page ${pageNum} unticked.`, "info");
+      } else {
+        state.completedPages.push(pageNum);
+        state.completedPages.sort((a, b) => a - b);
+        db.save();
+        showToast(`Page ${pageNum} marked completed! ✓`, "success");
+      }
+      renderDashboard(container);
+    };
+  });
+
+  const toggleAllBtn = document.getElementById('dashboard-project-toggle-all-btn');
+  if (toggleAllBtn && activeGoal) {
+    toggleAllBtn.onclick = () => {
+      const allDone = metrics.completedPagesCount === metrics.targetPages;
+      if (allDone) {
+        if (confirm(`Untick all pages in Para ${activeGoal.para}?`)) {
+          state.completedPages = state.completedPages.filter(p => p < activeGoal.startPage || p > activeGoal.endPage);
+          db.save();
+          showToast(`All pages in Para ${activeGoal.para} unticked.`, "info");
+          renderDashboard(container);
+        }
+      } else {
+        for (let p = activeGoal.startPage; p <= activeGoal.endPage; p++) {
+          if (!state.completedPages.includes(p)) state.completedPages.push(p);
+        }
+        state.completedPages.sort((a, b) => a - b);
+        db.save();
+        showToast(`All pages in Para ${activeGoal.para} marked completed! 🎉`, "success");
+        renderDashboard(container);
+      }
+    };
+  }
 
   const startNextParaBtn = document.getElementById('start-next-para-btn');
   if (startNextParaBtn) {
@@ -1318,8 +1358,8 @@ function renderProgressGraph(goal, metrics, dailyRecords) {
   }
 }
 
-// B. PLAN VIEW
-function renderPlan(container) {
+// B. PROJECT HUB VIEW
+function renderProjectHub(container) {
   const state = db.getState();
   const todayStr = state.settings.systemDateOverride || new Date().toISOString().split('T')[0];
 
@@ -1334,9 +1374,17 @@ function renderPlan(container) {
   container.innerHTML = `
     <div class="plan-container">
       <div class="dashboard-main-col">
+        <!-- Project Hub Header Banner -->
         <div class="card pattern-bg">
-          <h3 style="color: var(--primary-color); margin-bottom: 16px;">Hifz Journey & Projections</h3>
-          <div class="dashboard-grid" style="margin-bottom: 20px;">
+          <div class="flex justify-between align-center" style="margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h2 style="color: var(--primary-color); margin: 0 0 4px; font-size: 1.4rem;">Project Hub</h2>
+              <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">Manage ongoing projects, schedule upcoming goals, and view completed history.</p>
+            </div>
+            <button id="project-hub-create-btn" class="btn btn-primary" style="padding: 8px 16px;">+ Create New Project</button>
+          </div>
+
+          <div class="dashboard-grid" style="margin-bottom: 16px;">
             <div class="metric-tile">
               <div class="metric-label">Hifz Progress</div>
               <div class="metric-val" style="font-size: 1.4rem;">${totalPagesCompleted} / ${totalPages}</div>
@@ -1345,35 +1393,42 @@ function renderPlan(container) {
             <div class="metric-tile">
               <div class="metric-label">Juz Completed</div>
               <div class="metric-val" style="font-size: 1.4rem;">${projection.juzCompleted} / 30</div>
-              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Paras 1, 2, 30: Completed</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Milestones finished</div>
             </div>
           </div>
-          <div style="border-top: 1px solid var(--border-color); padding-top: 16px;">
+          <div style="border-top: 1px solid var(--border-color); padding-top: 14px;">
             <div class="buffer-status-banner ${projection.onTrack ? 'ahead' : 'behind'}" style="margin-bottom: 0; padding: 12px 16px;">
               <div>
-                <div style="font-weight: 700; margin-bottom: 4px;">PROJECTED COMPLETION: ${projection.projectedDate}</div>
+                <div style="font-weight: 700; margin-bottom: 2px;">PROJECTED COMPLETION: ${projection.projectedDate}</div>
                 <div style="font-size: 0.8rem; opacity: 0.95;">${projection.message}</div>
               </div>
             </div>
           </div>
         </div>
 
+        <!-- Current Ongoing Project -->
         <div class="card">
           <div class="section-title">
-            <span>Active Goal Control Center</span>
-            <button id="plan-add-goal-top-btn" class="section-subtitle-btn">+ Create New Goal</button>
+            <span>Current Ongoing Project</span>
+            ${currentGoal ? `<button id="project-hub-adjust-btn" class="section-subtitle-btn" data-goal-id="${currentGoal.id}">Edit Project</button>` : ''}
           </div>
           ${currentGoal ? renderGoalCardHtml(currentGoal, state.completedPages, state.dailyRecords, todayStr) : `
-            <div class="text-center" style="padding: 24px 0;">
-              <p style="color: var(--text-muted); margin-bottom: 12px;">No active goal currently selected.</p>
-              <button id="plan-create-first-goal-btn" class="btn btn-primary btn-xs">+ Create Goal</button>
+            <div class="text-center" style="padding: 36px 16px; border: 2px dashed var(--border-color); border-radius: 8px;">
+              <span style="font-size: 2.2rem; display: block; margin-bottom: 8px;">🎯</span>
+              <h4 style="color: var(--text-main); margin-bottom: 6px;">No Active Project Running</h4>
+              <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 420px; margin: 0 auto 16px;">
+                You haven't set an ongoing project yet. Start a project now for any Para, set your speed or duration, and pick a start date (even in past dates).
+              </p>
+              <button id="project-hub-first-btn" class="btn btn-primary btn-sm">+ Start a Project</button>
             </div>
           `}
         </div>
 
+        <!-- Project History: Completed Projects -->
         <div class="card">
           <div class="section-title">
-            <span>Completed Goals</span>
+            <span>Project History (Completed)</span>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">${pastGoals.length} completed</span>
           </div>
           <div style="overflow-x: auto;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem; text-align: left;">
@@ -1381,14 +1436,14 @@ function renderPlan(container) {
                 <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-muted); font-size: 0.8rem;">
                   <th style="padding: 10px 8px;">Para</th>
                   <th style="padding: 10px 8px;">Range</th>
-                  <th style="padding: 10px 8px;">Target Mode</th>
-                  <th style="padding: 10px 8px;">Completed</th>
+                  <th style="padding: 10px 8px;">Target</th>
+                  <th style="padding: 10px 8px;">Completed Pages</th>
                   <th style="padding: 10px 8px;">Status</th>
                   <th style="padding: 10px 8px; text-align: right;">Action</th>
                 </tr>
               </thead>
               <tbody>
-                ${pastGoals.length === 0 ? `<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--text-muted);">No completed goals yet.</td></tr>` : pastGoals.map(g => {
+                ${pastGoals.length === 0 ? `<tr><td colspan="6" style="padding: 20px; text-align: center; color: var(--text-muted);">No completed projects yet.</td></tr>` : pastGoals.map(g => {
                   const m = calculateMonthlyMetrics(g, state.completedPages, state.dailyRecords, todayStr);
                   const modeStr = g.mode === 'duration' ? `${g.targetDays || 30} days` : `${g.targetPace || 0.5} p/d`;
                   return `
@@ -1411,26 +1466,32 @@ function renderPlan(container) {
       </div>
 
       <div class="dashboard-side-col">
+        <!-- Upcoming Projects Queue -->
         <div class="card">
           <div class="section-title">
-            <span>Upcoming / Future Goals</span>
-            <button id="plan-add-future-goal-btn" class="btn btn-primary btn-xs">+ Add</button>
+            <span>Upcoming Projects</span>
+            <button id="project-hub-add-upcoming-btn" class="btn btn-primary btn-xs">+ Add</button>
           </div>
           <div class="roadmap-list">
             ${futureGoals.length === 0 ? `
-              <p style="color: var(--text-muted); font-size: 0.85rem; padding: 12px 0;">No upcoming goals queued yet. Click <strong>+ Add</strong> to queue up your next Para (e.g. Para 4 in 30 days).</p>
+              <p style="color: var(--text-muted); font-size: 0.85rem; padding: 12px 0;">No upcoming projects queued. Click <strong>+ Add</strong> to queue up your next Para (e.g. Para 4).</p>
             ` : futureGoals.map(g => {
               const configured = g.startPage && g.endPage;
               const rangeStr = configured ? `Pages ${g.startPage}–${g.endPage}` : 'Page range not configured';
               const modeLabel = g.mode === 'duration' ? `Duration: ${g.targetDays || 30} days` : `Pace: ${g.targetPace || 0.5} p/d`;
               return `
-                <div class="roadmap-item">
+                <div class="roadmap-item" style="display: flex; flex-direction: column; gap: 8px;">
                   <div class="roadmap-month-info">
-                    <span class="roadmap-month-target">Para ${g.para} <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[g.para]?.name || ''})</span></span>
+                    <span class="roadmap-month-target" style="font-size: 1rem; font-weight: 700;">Para ${g.para} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[g.para]?.name || ''})</span></span>
                     <span class="roadmap-month-pages" style="color: ${configured ? 'var(--text-muted)' : 'var(--color-missed)'}">${rangeStr} · ${modeLabel}</span>
+                    ${g.startDate ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">Start: ${g.startDate}</div>` : ''}
                   </div>
-                  <div class="roadmap-actions">
-                    <button class="btn btn-outline btn-xs edit-roadmap-goal-btn" data-goal-id="${g.id}">Edit</button>
+                  <div class="flex gap-2 justify-between align-center" style="margin-top: 4px;">
+                    <button class="btn btn-secondary btn-xs activate-project-btn" data-goal-id="${g.id}">▶ Activate</button>
+                    <div class="flex gap-1">
+                      <button class="btn btn-outline btn-xs edit-roadmap-goal-btn" data-goal-id="${g.id}">Edit</button>
+                      <button class="btn btn-text btn-xs delete-project-btn" data-goal-id="${g.id}" style="color: var(--color-missed); font-size: 0.75rem;">Delete</button>
+                    </div>
                   </div>
                 </div>
               `;
@@ -1445,32 +1506,109 @@ function renderPlan(container) {
   document.querySelectorAll('.edit-roadmap-goal-btn').forEach(btn => {
     btn.onclick = () => openRoadmapEditModal(btn.dataset.goalId);
   });
-  const addTopBtn = document.getElementById('plan-add-goal-top-btn');
-  if (addTopBtn) addTopBtn.onclick = () => openRoadmapEditModal(null);
-  const addFirstBtn = document.getElementById('plan-create-first-goal-btn');
-  if (addFirstBtn) addFirstBtn.onclick = () => openRoadmapEditModal(null);
-  const addFutureBtn = document.getElementById('plan-add-future-goal-btn');
-  if (addFutureBtn) addFutureBtn.onclick = () => openRoadmapEditModal(null);
+  document.querySelectorAll('.activate-project-btn').forEach(btn => {
+    btn.onclick = () => {
+      const gid = btn.dataset.goalId;
+      state.monthlyGoals.forEach(g => {
+        if (g.id === gid) g.status = "active";
+        else if (g.status === "active") g.status = "future";
+      });
+      db.save();
+      showToast("Project activated!", "success");
+      initRouter();
+    };
+  });
+  document.querySelectorAll('.delete-project-btn').forEach(btn => {
+    btn.onclick = () => {
+      const gid = btn.dataset.goalId;
+      if (confirm("Delete this upcoming project?")) {
+        db.deleteGoal(gid);
+        showToast("Project removed.", "info");
+        initRouter();
+      }
+    };
+  });
+  const hubCreateBtn = document.getElementById('project-hub-create-btn');
+  if (hubCreateBtn) hubCreateBtn.onclick = () => openRoadmapEditModal(null);
+  const hubFirstBtn = document.getElementById('project-hub-first-btn');
+  if (hubFirstBtn) hubFirstBtn.onclick = () => openRoadmapEditModal(null);
+  const hubUpcomingBtn = document.getElementById('project-hub-add-upcoming-btn');
+  if (hubUpcomingBtn) hubUpcomingBtn.onclick = () => openRoadmapEditModal(null);
+  const hubAdjustBtn = document.getElementById('project-hub-adjust-btn');
+  if (hubAdjustBtn) hubAdjustBtn.onclick = () => openRoadmapEditModal(hubAdjustBtn.dataset.goalId);
+  const planCardNewGoalBtn = document.getElementById('plan-card-new-goal-btn');
+  if (planCardNewGoalBtn) planCardNewGoalBtn.onclick = () => openRoadmapEditModal(null);
+
+  // Hook up page checklist in Project Hub
+  document.querySelectorAll('.hub-page-cell').forEach(cell => {
+    cell.onclick = () => {
+      const pageNum = parseInt(cell.dataset.page, 10);
+      const idx = state.completedPages.indexOf(pageNum);
+      if (idx !== -1) {
+        state.completedPages.splice(idx, 1);
+        db.save();
+        showToast(`Page ${pageNum} unticked.`, "info");
+      } else {
+        state.completedPages.push(pageNum);
+        state.completedPages.sort((a, b) => a - b);
+        db.save();
+        showToast(`Page ${pageNum} marked completed! ✓`, "success");
+      }
+      renderProjectHub(container);
+    };
+  });
 }
+
+const renderPlan = renderProjectHub;
 
 function renderGoalCardHtml(goal, completedPages, dailyRecords, todayStr) {
   const metrics = calculateMonthlyMetrics(goal, completedPages, dailyRecords, todayStr);
   const percentStr = metrics.percentComplete.toFixed(0);
   const modeBadge = goal.mode === 'duration' ? `Duration: ${goal.targetDays || 30} days` : `Pace: ${goal.targetPace || 0.5} p/d`;
-  return `
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
-      <div>
-        <h4 style="font-size: 1.25rem; color: var(--primary-color); font-weight: 700; margin-bottom: 2px;">Para ${goal.para} <span style="font-size: 0.95rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[goal.para]?.name || ''})</span></h4>
-        <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-brand);">Range: Pages ${goal.startPage}–${goal.endPage} (${metrics.targetPages} p.) · ${modeBadge}</span>
+
+  let pagesHtml = '';
+  for (let p = goal.startPage; p <= goal.endPage; p++) {
+    const isDone = completedPages.includes(p);
+    pagesHtml += `
+      <div class="hub-page-cell ${isDone ? 'done' : ''}" data-page="${p}" title="Click to toggle Page ${p}" style="cursor: pointer; user-select: none; border-radius: 6px; padding: 6px 2px; text-align: center; border: 1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'}; background: ${isDone ? 'rgba(23, 107, 82, 0.12)' : 'var(--bg-color)'}; transition: all 0.15s ease;">
+        <div style="font-size: 0.65rem; color: var(--text-muted);">P.</div>
+        <div style="font-size: 0.95rem; font-weight: 700; color: ${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">${p}</div>
+        <div style="font-size: 0.7rem; font-weight: bold; color: ${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top: 1px;">
+          ${isDone ? '✓ Done' : '○'}
+        </div>
       </div>
-      <div style="text-align: right;"><span class="badge badge-${goal.status}">${goal.status}</span></div>
+    `;
+  }
+
+  return `
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+      <div>
+        <h4 style="font-size: 1.25rem; color: var(--primary-color); font-weight: 700; margin-bottom: 2px;">
+          Para ${goal.para} <span style="font-size: 0.95rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[goal.para]?.name || ''})</span>
+        </h4>
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-brand);">Range: Pages ${goal.startPage}–${goal.endPage} (${metrics.targetPages} p.) · ${modeBadge}</span>
+        ${goal.startDate ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Started: <strong>${goal.startDate}</strong> ${goal.targetEndDate ? `· Projected Finish: <strong>${goal.targetEndDate}</strong>` : ''}</div>` : ''}
+      </div>
+      <div style="text-align: right;"><span class="badge badge-${goal.status}">${goal.status.toUpperCase()}</span></div>
     </div>
     <div class="progress-container">
       <div class="progress-bar-wrapper" style="height: 8px;"><div class="progress-bar-fill" style="width: ${percentStr}%"></div></div>
       <div class="progress-label-row"><span>Progress: <strong>${metrics.completedPagesCount}/${metrics.targetPages} p.</strong></span><span>${percentStr}%</span></div>
     </div>
+
+    <!-- Interactive Checklist inside Project Hub -->
+    <div style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin: 12px 0;">
+      <div class="flex justify-between align-center" style="margin-bottom: 8px;">
+        <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);">Project Pages Checklist</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">Click any page to toggle</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px;">
+        ${pagesHtml}
+      </div>
+    </div>
+
     <div class="flex gap-2" style="margin-top: 14px;">
-      <button class="btn btn-primary btn-xs edit-roadmap-goal-btn" data-goal-id="${goal.id}">Adjust Goal</button>
+      <button class="btn btn-primary btn-xs edit-roadmap-goal-btn" data-goal-id="${goal.id}">Adjust Project</button>
       <button class="btn btn-outline btn-xs" id="plan-card-new-goal-btn">+ Add Next Goal</button>
     </div>
   `;
@@ -1481,10 +1619,10 @@ function calculateProjection(state, remainingPages) {
 
   const activeGoal = state.monthlyGoals.find(g => g.status === "active");
   const targetPace = activeGoal ? (activeGoal.targetPace || 0.5) : 0.5;
-  const ratePerMonth = targetPace * 26; // 26 study days per month
+  const ratePerMonth = targetPace * 30; // 30 active days per month (normal Sundays)
 
   const today = new Date(state.settings.systemDateOverride || new Date().toISOString().split('T')[0]);
-  const daysNeeded = Math.ceil(remainingPages / (targetPace || 0.5) * (7 / 6));
+  const daysNeeded = Math.ceil(remainingPages / (targetPace || 0.5));
   const projectedDateObj = new Date(today);
   projectedDateObj.setDate(projectedDateObj.getDate() + daysNeeded);
   const projectedDateText = `${getMonthName(projectedDateObj.getMonth() + 1)} ${projectedDateObj.getFullYear()}`;
@@ -2042,7 +2180,8 @@ function renderSettings(container) {
 function initRouter() {
   const routeMap = {
     'dashboard': renderDashboard,
-    'plan': renderPlan,
+    'projects': renderProjectHub,
+    'plan': renderProjectHub,
     'juz': renderJuz,
     'stats': renderStats,
     'settings': renderSettings
@@ -2061,9 +2200,14 @@ function initRouter() {
       }, 100);
     }
 
+    const activeKey = (hash === 'plan' || hash === 'projects') ? 'projects' : hash;
     document.querySelectorAll('.desktop-nav .nav-item, .mobile-nav .mobile-nav-item').forEach(link => {
-      if (link.dataset.page === hash) link.classList.add('active');
-      else link.classList.remove('active');
+      const page = link.dataset.page;
+      if (page === activeKey || (activeKey === 'projects' && (page === 'projects' || page === 'plan'))) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
     });
   };
 
@@ -2322,7 +2466,7 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
 
   const titleEl = document.getElementById('edit-goal-modal-title');
   if (titleEl) {
-    titleEl.innerText = isEditing ? `Edit Hifz Goal: Para ${goal.para}` : "Create New Hifz Goal";
+    titleEl.innerText = isEditing ? `Edit Project: Para ${goal.para}` : "Create New Project";
   }
 
   const idInput = document.getElementById('edit-goal-id');
@@ -2364,10 +2508,10 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     if (deleteBtn) {
       deleteBtn.classList.remove('hidden');
       deleteBtn.onclick = () => {
-        if (confirm(`Are you sure you want to delete the goal for Para ${goal.para}?`)) {
+        if (confirm(`Are you sure you want to delete the project for Para ${goal.para}?`)) {
           db.deleteGoal(goal.id);
           document.getElementById('roadmap-edit-modal').classList.add('hidden');
-          showToast(`Goal for Para ${goal.para} deleted.`, "info");
+          showToast(`Project for Para ${goal.para} deleted.`, "info");
           initRouter();
         }
       };
@@ -2423,19 +2567,17 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     // Pace mode calc
     const paceVal = parseFloat(paceInput.value) || 0.5;
     const studyDaysPace = Math.ceil(pages / paceVal);
-    const calDaysPace = Math.ceil(studyDaysPace * 7 / 6);
     const projDatePace = calculateProjectedEndDate(startDate, studyDaysPace);
     if (pacePreview) {
-      pacePreview.innerHTML = `⚡ <strong>${pages} pages</strong> at <strong>${paceVal} p/d</strong> = <strong>${studyDaysPace} study days</strong> (~${calDaysPace} calendar days). Projected finish: <strong>${projDatePace}</strong>`;
+      pacePreview.innerHTML = `⚡ <strong>${pages} pages</strong> at <strong>${paceVal} p/d</strong> = <strong>${studyDaysPace} days</strong>. Projected finish: <strong>${projDatePace}</strong>`;
     }
 
     // Duration mode calc
     const durDays = parseInt(daysInput.value, 10) || 30;
-    const studyDaysDur = Math.max(1, Math.round(durDays * 6 / 7));
-    const reqPaceDur = (pages / studyDaysDur).toFixed(2);
-    const projDateDur = calculateProjectedEndDate(startDate, studyDaysDur);
+    const reqPaceDur = (pages / durDays).toFixed(2);
+    const projDateDur = calculateProjectedEndDate(startDate, durDays);
     if (durationPreview) {
-      durationPreview.innerHTML = `⚡ <strong>${pages} pages</strong> in <strong>${durDays} days</strong> (~${studyDaysDur} study days) requires <strong>~${reqPaceDur} pages/day</strong>. Projected finish: <strong>${projDateDur}</strong>`;
+      durationPreview.innerHTML = `⚡ <strong>${pages} pages</strong> in <strong>${durDays} days</strong> requires <strong>~${reqPaceDur} pages/day</strong>. Projected finish: <strong>${projDateDur}</strong>`;
     }
   };
 
@@ -2701,9 +2843,8 @@ function bindGlobalModals() {
       targetEndDate = calculateProjectedEndDate(startDate, targetDays);
     } else {
       targetDays = parseInt(document.getElementById('edit-goal-days').value, 10) || 30;
-      const studyDays = Math.max(1, Math.round(targetDays * 6 / 7));
-      targetPace = parseFloat((targetPages / studyDays).toFixed(2));
-      targetEndDate = calculateProjectedEndDate(startDate, studyDays);
+      targetPace = parseFloat((targetPages / targetDays).toFixed(2));
+      targetEndDate = calculateProjectedEndDate(startDate, targetDays);
     }
 
     const mode = isPaceMode ? 'pace' : 'duration';
@@ -2723,11 +2864,11 @@ function bindGlobalModals() {
 
     if (id) {
       db.updateMonthlyGoal(id, goalData);
-      showToast(`Para ${para} goal updated!`, "success");
+      showToast(`Para ${para} project updated!`, "success");
     } else {
       const newId = `goal-para-${para}-${Date.now()}`;
       db.addGoal({ id: newId, ...goalData });
-      showToast(`Goal for Para ${para} created!`, "success");
+      showToast(`Project for Para ${para} created!`, "success");
     }
 
     hideModal(document.getElementById('roadmap-edit-modal'));

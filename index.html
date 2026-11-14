@@ -112,9 +112,9 @@
           <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
           <span>Dashboard</span>
         </a>
-        <a href="#plan" class="nav-item" data-page="plan">
+        <a href="#projects" class="nav-item" data-page="projects">
           <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
-          <span>Plan</span>
+          <span>Projects</span>
         </a>
         <a href="#juz" class="nav-item" data-page="juz">
           <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5.89 12.5L12 15.84l6.11-3.34L12 9.16 5.89 12.5z"/></svg>
@@ -155,9 +155,9 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
         <span>Dashboard</span>
       </a>
-      <a href="#plan" class="mobile-nav-item" data-page="plan">
+      <a href="#projects" class="mobile-nav-item" data-page="projects">
         <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
-        <span>Plan</span>
+        <span>Projects</span>
       </a>
       <a href="#juz" class="mobile-nav-item" data-page="juz">
         <svg class="nav-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5.89 12.5L12 15.84l6.11-3.34L12 9.16 5.89 12.5z"/></svg>
@@ -351,11 +351,11 @@
     </div>
   </div>
 
-  <!-- E. Custom Goal Creator / Editor Modal -->
+  <!-- E. Custom Project Creator / Editor Modal -->
   <div id="roadmap-edit-modal" class="modal-overlay hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 id="edit-goal-modal-title">Create / Edit Hifz Goal</h3>
+        <h3 id="edit-goal-modal-title">Create / Edit Project</h3>
         <button class="close-modal-btn" id="close-roadmap-edit-btn">&times;</button>
       </div>
       <form id="roadmap-edit-form" class="modal-form">
@@ -401,7 +401,7 @@
               <span style="font-size: 0.85rem; color: var(--text-muted);">pages / day</span>
             </div>
             <div id="goal-pace-calc-preview" style="font-size: 0.8rem; color: var(--secondary-color); margin-top: 6px; font-weight: 500;">
-              ⚡ 20 pages at 0.5 p/d = 40 study days (~46 calendar days).
+              ⚡ 20 pages at 0.5 p/d = 40 study days (40 calendar days).
             </div>
           </div>
 
@@ -412,31 +412,31 @@
               <span style="font-size: 0.85rem; color: var(--text-muted);">days</span>
             </div>
             <div id="goal-duration-calc-preview" style="font-size: 0.8rem; color: var(--secondary-color); margin-top: 6px; font-weight: 500;">
-              ⚡ 20 pages in 30 days (~26 study days) requires ~0.77 pages/day.
+              ⚡ 20 pages in 30 days requires ~0.67 pages/day.
             </div>
           </div>
         </div>
 
         <div class="form-row">
           <div class="form-group">
-            <label for="edit-goal-start-date">Start Date</label>
+            <label for="edit-goal-start-date">Start Date (Past or Present)</label>
             <input type="date" id="edit-goal-start-date" class="form-input">
           </div>
           <div class="form-group">
-            <label for="edit-goal-status">Goal Status</label>
+            <label for="edit-goal-status">Project Status</label>
             <select id="edit-goal-status" class="form-select">
-              <option value="active">Active (Current Goal)</option>
-              <option value="future">Future Goal</option>
-              <option value="completed">Completed</option>
+              <option value="active">Active (Ongoing Project)</option>
+              <option value="future">Upcoming (Project Queue)</option>
+              <option value="completed">Completed Milestone</option>
             </select>
           </div>
         </div>
 
         <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
-          <button type="button" class="btn btn-outline btn-xs" id="delete-roadmap-goal-btn" style="color: var(--color-missed); border-color: var(--color-missed);">Delete</button>
+          <button type="button" class="btn btn-outline btn-xs" id="delete-roadmap-goal-btn" style="color: var(--color-missed); border-color: var(--color-missed);">Delete Project</button>
           <div class="flex gap-2">
             <button type="button" class="btn btn-text" id="cancel-roadmap-edit-btn">Cancel</button>
-            <button type="submit" class="btn btn-primary" id="save-roadmap-goal-btn">Save Goal</button>
+            <button type="submit" class="btn btn-primary" id="save-roadmap-goal-btn">Save Project</button>
           </div>
         </div>
       </form>
