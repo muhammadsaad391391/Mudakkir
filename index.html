@@ -464,6 +464,77 @@
     </div>
   </div>
 
+  
+  <!-- H. Complex Project Daily Targets Planner Modal -->
+  <div id="complex-project-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 680px; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; color: var(--primary-color);">🧩 Complex Project: Custom Daily Targets</h3>
+          <p style="margin: 4px 0 0; font-size: 0.8rem; color: var(--text-muted);">Adjust individual target pages for each day. Projected finish date will update automatically.</p>
+        </div>
+        <button class="close-modal-btn" id="close-complex-modal-btn">&times;</button>
+      </div>
+
+      <div style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Total Planned / Project Pages</div>
+            <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); font-family: var(--font-brand);">
+              <span id="complex-total-planned">0</span> / <span id="complex-total-required">0</span> pages
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Projected Finish Date</div>
+            <div id="complex-projected-finish" style="font-size: 1.15rem; font-weight: 700; color: var(--secondary-color); font-family: var(--font-brand);">
+              —
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Total Days Needed</div>
+            <div id="complex-total-days" style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); font-family: var(--font-brand);">
+              0 days
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Set all remaining days to:</span>
+          <button type="button" class="btn btn-outline btn-xs complex-batch-set" data-val="0.5">0.5 p/d</button>
+          <button type="button" class="btn btn-outline btn-xs complex-batch-set" data-val="1.0">1.0 p/d</button>
+          <button type="button" class="btn btn-outline btn-xs complex-batch-set" data-val="1.5">1.5 p/d</button>
+          <button type="button" class="btn btn-outline btn-xs complex-batch-set" data-val="2.0">2.0 p/d</button>
+          <button type="button" id="complex-add-day-btn" class="btn btn-outline btn-xs" style="margin-left: auto;">+ Add Day</button>
+        </div>
+      </div>
+
+      <div style="flex: 1; overflow-y: auto; padding-right: 4px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg);">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+          <thead style="position: sticky; top: 0; background: var(--bg-color); z-index: 2; border-bottom: 1.5px solid var(--border-color);">
+            <tr>
+              <th style="padding: 8px 10px; text-align: left;">Day #</th>
+              <th style="padding: 8px 10px; text-align: left;">Date</th>
+              <th style="padding: 8px 10px; text-align: left;">Daily Target (pages)</th>
+              <th style="padding: 8px 10px; text-align: left;">Cumulative</th>
+              <th style="padding: 8px 10px; text-align: center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="complex-schedule-tbody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" id="complex-revert-btn" class="btn btn-outline btn-xs" style="color: var(--color-missed); border-color: var(--color-missed);">Revert to Standard Mode</button>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-text" id="cancel-complex-modal-btn">Cancel</button>
+          <button type="button" class="btn btn-primary" id="save-complex-modal-btn">Save Custom Schedule</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- G. Daily Study Log Editor Modal -->
   <div id="log-editor-modal" class="modal-overlay hidden">
     <div class="modal-card">

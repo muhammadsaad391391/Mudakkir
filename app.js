@@ -501,9 +501,53 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
   result.bufferDaysRemaining = Math.max(0, totalHifzDays - Math.ceil(targetPages / (requiredPace || 1)));
   result.sundaysRemaining = 0;
 
-  // Target Completion Date (original benchmark)
-  const targetDays = goal.targetDays || totalHifzDays;
-  result.targetCompletionDate = goal.targetEndDate || calculateProjectedEndDate(startDateStr, targetDays);
+  // Support Complex Project custom daily targets schedule
+  if (goal.isComplex && Array.isArray(goal.dailyTargets) && goal.dailyTargets.length > 0) {
+    const totalPlannedPages = goal.dailyTargets.reduce((sum, d) => sum + (parseFloat(d.target) || 0), 0);
+    // Target finish date is the last planned day
+    const lastDay = goal.dailyTargets[goal.dailyTargets.length - 1];
+    if (lastDay && lastDay.date) {
+      result.targetCompletionDate = lastDay.date;
+    }
+    result.hifzDays = goal.dailyTargets.length;
+
+    // Expected progress up to today
+    let expectedSoFar = 0;
+    goal.dailyTargets.forEach(d => {
+      if (d.date <= currentDateStr) {
+        expectedSoFar += (parseFloat(d.target) || 0);
+      }
+    });
+    result.expectedProgress = parseFloat(Math.min(targetPages, expectedSoFar).toFixed(2));
+    result.progressDifference = parseFloat((completedCount - result.expectedProgress).toFixed(2));
+
+    // Dynamic Adjusted Finish Date from today based on remaining pages
+    let remainingToProject = result.remainingPages;
+    let adjustedDate = currentDateStr;
+    if (remainingToProject <= 0) {
+      result.adjustedCompletionDate = "Completed! 🎉";
+      result.daysNeededFromToday = 0;
+    } else {
+      let daysCount = 0;
+      let dObj = new Date(currentDateStr);
+      while (remainingToProject > 0.001 && daysCount < 365) {
+        daysCount++;
+        dObj.setDate(dObj.getDate() + 1);
+        const nextDateStr = dObj.toISOString().split('T')[0];
+        // Check if there is a target defined for this date
+        const match = goal.dailyTargets.find(t => t.date === nextDateStr);
+        const dayPace = match ? (parseFloat(match.target) || requiredPace) : requiredPace;
+        remainingToProject -= dayPace;
+        adjustedDate = nextDateStr;
+      }
+      result.daysNeededFromToday = daysCount;
+      result.adjustedCompletionDate = adjustedDate;
+    }
+  } else {
+    // Target Completion Date (original benchmark)
+    const targetDays = goal.targetDays || totalHifzDays;
+    result.targetCompletionDate = goal.targetEndDate || calculateProjectedEndDate(startDateStr, targetDays);
+  }
 
   // Dynamic / Adjusted Completion Date (recalculated from today based on remaining work)
   const daysNeededFromToday = requiredPace > 0 ? Math.ceil(result.remainingPages / requiredPace) : 0;
@@ -970,6 +1014,7 @@ function renderDashboard(container) {
             </div>
           </div>
           <div class="flex gap-2">
+            <button id="dashboard-complex-goal-btn" class="btn btn-outline btn-xs" style="color: #fff; border-color: rgba(255,255,255,0.4);" data-goal-id="${activeGoal.id}">${activeGoal.isComplex ? '🧩 Custom Targets' : '⚡ Promote to Complex'}</button>
             <button id="dashboard-edit-goal-btn" class="btn btn-outline btn-xs" style="color: #fff; border-color: rgba(255,255,255,0.4);" data-goal-id="${activeGoal.id}">Edit Project</button>
             <button id="dashboard-new-goal-btn" class="btn btn-primary btn-xs" style="background: var(--secondary-color); color: #fff;">+ New Project</button>
           </div>
@@ -1355,6 +1400,9 @@ function renderDashboard(container) {
   // Event handlers
   const editGoalBtn = document.getElementById('dashboard-edit-goal-btn');
   if (editGoalBtn) editGoalBtn.onclick = () => openRoadmapEditModal(editGoalBtn.dataset.goalId);
+
+  const complexGoalBtn = document.getElementById('dashboard-complex-goal-btn');
+  if (complexGoalBtn) complexGoalBtn.onclick = () => openComplexProjectModal(complexGoalBtn.dataset.goalId);
 
   const newGoalBtn = document.getElementById('dashboard-new-goal-btn');
   if (newGoalBtn) newGoalBtn.onclick = () => openRoadmapEditModal(null);
@@ -1813,6 +1861,10 @@ function renderProjectHub(container) {
   `;
 
   // Bindings
+  document.querySelectorAll('.complex-roadmap-goal-btn').forEach(btn => {
+    btn.onclick = () => openComplexProjectModal(btn.dataset.goalId);
+  });
+
   document.querySelectorAll('.edit-roadmap-goal-btn').forEach(btn => {
     btn.onclick = () => openRoadmapEditModal(btn.dataset.goalId);
   });
@@ -1955,6 +2007,7 @@ function renderGoalCardHtml(goal, completedPages, dailyRecords, todayStr) {
     </div>
 
     <div class="flex gap-2" style="margin-top: 14px;">
+      <button class="btn btn-outline btn-xs complex-roadmap-goal-btn" data-goal-id="${goal.id}">${goal.isComplex ? '🧩 Custom Targets' : '⚡ Promote to Complex'}</button>
       <button class="btn btn-primary btn-xs edit-roadmap-goal-btn" data-goal-id="${goal.id}">Adjust Project</button>
       <button class="btn btn-outline btn-xs" id="plan-card-new-goal-btn">+ Add Next Goal</button>
     </div>
@@ -3145,7 +3198,212 @@ function triggerCelebration(titleText, textContent) {
   }
 }
 
+
+// ==========================================================================
+// Complex Project Daily Targets Planner
+// ==========================================================================
+
+let _currentComplexGoal = null;
+let _complexDailyPlan = [];
+
+function openComplexProjectModal(goalId) {
+  const state = db.getState();
+  const goal = state.monthlyGoals.find(g => g.id === goalId);
+  if (!goal) return;
+
+  _currentComplexGoal = goal;
+  const targetPages = goal.targetPages || Math.max(0.5, Math.round((goal.endPage - goal.startPage + 1) * 10) / 10);
+  const defaultPace = goal.targetPace && goal.targetPace > 0 ? goal.targetPace : 0.5;
+  const startDateStr = goal.startDate || state.settings.systemDateOverride || new Date().toISOString().split('T')[0];
+
+  if (goal.isComplex && Array.isArray(goal.dailyTargets) && goal.dailyTargets.length > 0) {
+    _complexDailyPlan = JSON.parse(JSON.stringify(goal.dailyTargets));
+  } else {
+    // Generate initial plan from default pace
+    _complexDailyPlan = [];
+    let accumulated = 0;
+    let dayNum = 1;
+    let dObj = new Date(startDateStr);
+    while (accumulated < targetPages - 0.001) {
+      const step = Math.min(defaultPace, Math.round((targetPages - accumulated) * 100) / 100);
+      const dateStr = dObj.toISOString().split('T')[0];
+      _complexDailyPlan.push({
+        day: dayNum,
+        date: dateStr,
+        target: step
+      });
+      accumulated = Math.round((accumulated + step) * 100) / 100;
+      dayNum++;
+      dObj.setDate(dObj.getDate() + 1);
+    }
+  }
+
+  document.getElementById('complex-total-required').innerText = targetPages.toFixed(1);
+  renderComplexPlanTable();
+
+  const modal = document.getElementById('complex-project-modal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function renderComplexPlanTable() {
+  const tbody = document.getElementById('complex-schedule-tbody');
+  if (!tbody || !_currentComplexGoal) return;
+
+  const targetPages = _currentComplexGoal.targetPages || 20;
+  let cum = 0;
+  let html = '';
+
+  _complexDailyPlan.forEach((item, idx) => {
+    const val = parseFloat(item.target) || 0;
+    cum = Math.round((cum + val) * 100) / 100;
+    html += `
+      <tr style="border-bottom: 1px solid var(--border-color); background: ${cum >= targetPages ? 'rgba(23, 107, 82, 0.05)' : 'transparent'};">
+        <td style="padding: 8px 10px; font-weight: 700; color: var(--text-muted);">Day ${item.day || (idx + 1)}</td>
+        <td style="padding: 8px 10px; font-family: var(--font-brand); font-size: 0.82rem;">${item.date}</td>
+        <td style="padding: 6px 10px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <input type="number" step="any" min="0" max="20" class="form-input complex-target-input" data-index="${idx}" value="${item.target}" style="max-width: 90px; padding: 4px 6px; font-size: 0.85rem; font-weight: 700;">
+            <span style="font-size: 0.75rem; color: var(--text-muted);">p.</span>
+          </div>
+        </td>
+        <td style="padding: 8px 10px; font-weight: 700; color: ${cum >= targetPages ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">
+          ${cum.toFixed(2)} p.
+        </td>
+        <td style="padding: 6px 10px; text-align: center;">
+          <button type="button" class="btn btn-text btn-xs complex-remove-day" data-index="${idx}" style="color: var(--color-missed); font-size: 0.75rem; padding: 2px 4px;">&times;</button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  // Update header summary
+  const totalPlanned = _complexDailyPlan.reduce((sum, d) => sum + (parseFloat(d.target) || 0), 0);
+  document.getElementById('complex-total-planned').innerText = totalPlanned.toFixed(2);
+  document.getElementById('complex-total-days').innerText = `${_complexDailyPlan.length} days`;
+
+  const lastDay = _complexDailyPlan[_complexDailyPlan.length - 1];
+  document.getElementById('complex-projected-finish').innerText = lastDay ? lastDay.date : '—';
+
+  // Bind input change events
+  tbody.querySelectorAll('.complex-target-input').forEach(input => {
+    input.onchange = (e) => {
+      const i = parseInt(e.target.dataset.index, 10);
+      const newV = parseFloat(e.target.value) || 0;
+      _complexDailyPlan[i].target = newV;
+      renderComplexPlanTable();
+    };
+  });
+
+  // Bind remove day buttons
+  tbody.querySelectorAll('.complex-remove-day').forEach(btn => {
+    btn.onclick = (e) => {
+      const i = parseInt(e.target.dataset.index, 10);
+      _complexDailyPlan.splice(i, 1);
+      // Re-index days and dates
+      recalcComplexDates();
+      renderComplexPlanTable();
+    };
+  });
+}
+
+function recalcComplexDates() {
+  if (!_currentComplexGoal || _complexDailyPlan.length === 0) return;
+  const startStr = _currentComplexGoal.startDate || new Date().toISOString().split('T')[0];
+  let dObj = new Date(startStr);
+  _complexDailyPlan.forEach((item, idx) => {
+    item.day = idx + 1;
+    item.date = dObj.toISOString().split('T')[0];
+    dObj.setDate(dObj.getDate() + 1);
+  });
+}
+
+function bindComplexProjectModal() {
+  const closeBtn = document.getElementById('close-complex-modal-btn');
+  const cancelBtn = document.getElementById('cancel-complex-modal-btn');
+  const modal = document.getElementById('complex-project-modal');
+  const hide = () => { if (modal) modal.classList.add('hidden'); };
+
+  if (closeBtn) closeBtn.onclick = hide;
+  if (cancelBtn) cancelBtn.onclick = hide;
+
+  // Add Day button
+  const addDayBtn = document.getElementById('complex-add-day-btn');
+  if (addDayBtn) {
+    addDayBtn.onclick = () => {
+      const last = _complexDailyPlan[_complexDailyPlan.length - 1];
+      let nextDateStr = new Date().toISOString().split('T')[0];
+      let nextDayNum = 1;
+      if (last) {
+        const dObj = new Date(last.date);
+        dObj.setDate(dObj.getDate() + 1);
+        nextDateStr = dObj.toISOString().split('T')[0];
+        nextDayNum = (last.day || _complexDailyPlan.length) + 1;
+      }
+      _complexDailyPlan.push({
+        day: nextDayNum,
+        date: nextDateStr,
+        target: 0.5
+      });
+      renderComplexPlanTable();
+    };
+  }
+
+  // Batch set buttons (0.5, 1.0, 1.5, 2.0)
+  document.querySelectorAll('.complex-batch-set').forEach(btn => {
+    btn.onclick = () => {
+      const val = parseFloat(btn.dataset.val) || 0.5;
+      _complexDailyPlan.forEach(d => d.target = val);
+      renderComplexPlanTable();
+    };
+  });
+
+  // Revert button
+  const revertBtn = document.getElementById('complex-revert-btn');
+  if (revertBtn) {
+    revertBtn.onclick = () => {
+      if (!_currentComplexGoal) return;
+      if (confirm('Revert this project to standard pace mode? Custom daily targets will be removed.')) {
+        db.updateMonthlyGoal(_currentComplexGoal.id, {
+          isComplex: false,
+          dailyTargets: null
+        });
+        showToast('Reverted to standard project.', 'info');
+        hide();
+        initRouter();
+      }
+    };
+  }
+
+  // Save Custom Schedule button
+  const saveBtn = document.getElementById('save-complex-modal-btn');
+  if (saveBtn) {
+    saveBtn.onclick = () => {
+      if (!_currentComplexGoal) return;
+      const totalPlanned = _complexDailyPlan.reduce((sum, d) => sum + (parseFloat(d.target) || 0), 0);
+      const lastDay = _complexDailyPlan[_complexDailyPlan.length - 1];
+      const targetEndDate = lastDay ? lastDay.date : _currentComplexGoal.targetEndDate;
+      const targetDays = _complexDailyPlan.length;
+      const avgPace = targetDays > 0 ? parseFloat((totalPlanned / targetDays).toFixed(2)) : 0.5;
+
+      db.updateMonthlyGoal(_currentComplexGoal.id, {
+        isComplex: true,
+        dailyTargets: _complexDailyPlan,
+        targetDays,
+        targetEndDate,
+        targetPace: avgPace
+      });
+
+      showToast('Complex project schedule saved! 🧩', 'success');
+      hide();
+      initRouter();
+    };
+  }
+}
+
 function bindGlobalModals() {
+  bindComplexProjectModal();
   const hideModal = (el) => el.classList.add('hidden');
   
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
