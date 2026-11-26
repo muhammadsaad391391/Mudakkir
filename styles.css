@@ -1603,3 +1603,61 @@ body:not(.dark-mode) .dark-only { display: none !important; }
   transform: scale(0.95);
 }
 
+/* Half-Page (0.5p) Checklist Cards and Cells */
+.project-page-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.project-page-card:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+}
+
+.portion-cell {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.portion-cell:hover {
+  border-color: var(--secondary-color);
+  color: var(--secondary-color);
+  transform: translateY(-1px);
+}
+
+.portion-cell.done {
+  background: rgba(23, 107, 82, 0.15);
+  border-color: var(--secondary-color);
+  color: var(--secondary-color);
+  font-weight: 700;
+}
+
+.portion-cell:active {
+  transform: scale(0.95);
+}
+
+/* Calendar Half-Page Indicator Pill */
+.cal-portion-pill {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(23, 107, 82, 0.14);
+  color: var(--secondary-color);
+  margin-top: 2px;
+  display: inline-block;
+}
+
+.dark-mode .portion-cell.done {
+  background: rgba(16, 185, 129, 0.22);
+}
+
+

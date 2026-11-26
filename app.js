@@ -1,5 +1,5 @@
-/* ==========================================================================
-   Muddakir — Unified Single-File Application Logic
+﻿/* ==========================================================================
+   Muddakir â€” Unified Single-File Application Logic
    ========================================================================== */
 
 // 1. DATA CONSTANTS & METADATA (Updated to exact page ranges & Para names)
@@ -107,6 +107,10 @@ class StateManager {
           this.save(freshState);
           return freshState;
         }
+        if (!parsed.completedPortions) {
+          parsed.completedPortions = [];
+        }
+        parsed.version = 6;
         if (parsed.completedPages) {
           parsed.completedPages = Array.from(new Set(parsed.completedPages));
         }
@@ -124,6 +128,11 @@ class StateManager {
     const stateToSave = customState || this.state;
     try {
       localStorage.setItem(this.storageKey, JSON.stringify(stateToSave));
+      // Auto-push to cloud if sync is enabled (debounced — fire and forget)
+      if (typeof isSyncEnabled !== "undefined" && isSyncEnabled() && typeof pushToCloud !== "undefined") {
+        clearTimeout(window._syncDebounce);
+        window._syncDebounce = setTimeout(() => pushToCloud(stateToSave), 2000);
+      }
     } catch (e) {
       console.error("localStorage save error:", e);
     }
@@ -147,63 +156,18 @@ class StateManager {
 
     // Initial project history (completed milestones)
     // Note: No active project pre-loaded so user can start their own project freely
-    const monthlyGoals = [
-      {
-        id: "project-para-1",
-        para: 1,
-        name: STANDARD_PARA_PAGES[1].name,
-        startPage: 1,
-        endPage: 22,
-        targetPages: 22,
-        startDate: "2026-08-01",
-        targetEndDate: "2026-08-22",
-        targetPace: 1.0,
-        mode: "duration",
-        targetDays: 22,
-        status: "completed",
-        completionDate: "2026-08-22"
-      },
-      {
-        id: "project-para-2",
-        para: 2,
-        name: STANDARD_PARA_PAGES[2].name,
-        startPage: 23,
-        endPage: 42,
-        targetPages: 20,
-        startDate: "2026-08-23",
-        targetEndDate: "2026-09-11",
-        targetPace: 1.0,
-        mode: "duration",
-        targetDays: 20,
-        status: "completed",
-        completionDate: "2026-09-11"
-      },
-      {
-        id: "project-para-30",
-        para: 30,
-        name: STANDARD_PARA_PAGES[30].name,
-        startPage: 587,
-        endPage: 611,
-        targetPages: 25,
-        startDate: "2026-07-01",
-        targetEndDate: "2026-07-25",
-        targetPace: 1.0,
-        mode: "duration",
-        targetDays: 25,
-        status: "completed",
-        completionDate: "2026-07-25"
-      }
-    ];
+    const monthlyGoals = [];
 
     const dailyRecords = {};
     const weakSpots = [];
 
     return {
-      version: 5,
+      version: 6,
       settings: { ...DEFAULT_SETTINGS },
       monthlyGoals,
       dailyRecords,
       completedPages: Array.from(new Set(completedPages)).sort((a, b) => a - b),
+      completedPortions: [],
       weakSpots,
       streakData: {
         currentStreak: 0,
@@ -320,8 +284,124 @@ class StateManager {
 
 const db = new StateManager();
 
-// 3. CALCULATION FUNCTIONS
-function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDateStr) {
+// 3. CALCULATION FUNCTIONS & PORTION HELPERS
+
+function isPortionCompleted(state, pageNum, halfNum) {
+  if (state.completedPages && state.completedPages.includes(pageNum)) return true;
+  if (!state.completedPortions) return false;
+  return state.completedPortions.includes(`${pageNum}_${halfNum}`);
+}
+
+function getTotalCompletedPagesCount(state) {
+  let count = state.completedPages ? state.completedPages.length : 0;
+  if (state.completedPortions && state.completedPortions.length > 0) {
+    state.completedPortions.forEach(item => {
+      const p = parseInt(item.split('_')[0], 10);
+      if (!state.completedPages.includes(p)) {
+        count += 0.5;
+      }
+    });
+  }
+  return count;
+}
+
+function togglePagePortion(state, pageNum, halfNum) {
+  if (!state.completedPortions) state.completedPortions = [];
+  const key = `${pageNum}_${halfNum}`;
+  const otherKey = `${pageNum}_${halfNum === 1 ? 2 : 1}`;
+
+  // If page is fully completed in completedPages
+  if (state.completedPages.includes(pageNum)) {
+    const idx = state.completedPages.indexOf(pageNum);
+    if (idx !== -1) state.completedPages.splice(idx, 1);
+    if (!state.completedPortions.includes(otherKey)) {
+      state.completedPortions.push(otherKey);
+    }
+    state.completedPortions = state.completedPortions.filter(k => k !== key);
+    return false; // now unticked
+  }
+
+  // Not in completedPages
+  const exists = state.completedPortions.includes(key);
+  if (exists) {
+    state.completedPortions = state.completedPortions.filter(k => k !== key);
+    return false;
+  } else {
+    state.completedPortions.push(key);
+    // If the other half is also ticked, upgrade to full page in completedPages
+    if (state.completedPortions.includes(otherKey)) {
+      state.completedPortions = state.completedPortions.filter(k => k !== key && k !== otherKey);
+      if (!state.completedPages.includes(pageNum)) {
+        state.completedPages.push(pageNum);
+        state.completedPages.sort((a, b) => a - b);
+      }
+    }
+    return true;
+  }
+}
+
+function getNextSabaqPortion(activeGoal, state) {
+  if (!activeGoal) return null;
+  const isHalfPagePace = (activeGoal.targetPace && activeGoal.targetPace <= 0.75) || activeGoal.mode === 'pace';
+  const slotSize = isHalfPagePace ? 0.5 : 1.0;
+  // Scan from the para's standard first page so Sabaq covers entire para from beginning
+  const paraInfo = STANDARD_PARA_PAGES[activeGoal.para];
+  const scanStart = paraInfo ? paraInfo.start : activeGoal.startPage;
+  const scanEnd   = activeGoal.endPage;
+  for (let p = scanStart; p <= scanEnd; p++) {
+    const h1 = isPortionCompleted(state, p, 1);
+    const h2 = isPortionCompleted(state, p, 2);
+    if (!h1) {
+      const slotLabel = isHalfPagePace ? `Page ${p}-${p + 0.5}` : `Page ${p}`;
+      return { page: p, half: 1, portionSize: slotSize, text: `Para ${activeGoal.para} \u00B7 ${slotLabel}`, shortLabel: slotLabel };
+    }
+    if (!h2) {
+      const slotLabel = isHalfPagePace ? `Page ${p + 0.5}-${p + 1}` : `Page ${p}`;
+      return { page: p, half: 2, portionSize: slotSize, text: `Para ${activeGoal.para} \u00B7 ${slotLabel}`, shortLabel: slotLabel };
+    }
+  }
+  return { page: null, half: null, portionSize: 0, text: "Para Complete! \U0001F389", shortLabel: "Complete" };
+}
+
+function getSabqiRange(activeGoal, state) {
+  if (!activeGoal) return "Revision Mode";
+  
+  let completedInGoal = [];
+  let partialLastPage = null;
+  for (let p = activeGoal.startPage; p <= activeGoal.endPage; p++) {
+    const h1 = isPortionCompleted(state, p, 1);
+    const h2 = isPortionCompleted(state, p, 2);
+    if (h1 && h2) {
+      completedInGoal.push(p);
+    } else if (h1) {
+      partialLastPage = p;
+    }
+  }
+
+  if (completedInGoal.length === 0 && !partialLastPage) {
+    const prevPara = activeGoal.para > 1 ? activeGoal.para - 1 : 30;
+    const prevRange = STANDARD_PARA_PAGES[prevPara];
+    if (prevRange) {
+      const startSabqi = Math.max(prevRange.start, prevRange.end - 9);
+      return `Para ${prevPara} Â· Pages ${startSabqi}â€“${prevRange.end}`;
+    }
+    return "Para 2 Â· Pages 33â€“42";
+  }
+
+  const startP = activeGoal.startPage;
+  if (completedInGoal.length > 0 && !partialLastPage) {
+    const endP = completedInGoal[completedInGoal.length - 1];
+    return startP === endP ? `Para ${activeGoal.para} Â· Page ${startP}` : `Para ${activeGoal.para} Â· Pages ${startP}â€“${endP}`;
+  } else if (completedInGoal.length > 0 && partialLastPage) {
+    const endP = completedInGoal[completedInGoal.length - 1];
+    return `Para ${activeGoal.para} Â· Pages ${startP}â€“${endP} (+ P. ${partialLastPage} 1st half)`;
+  } else {
+    const prevPara = activeGoal.para > 1 ? activeGoal.para - 1 : 30;
+    return `Para ${activeGoal.para} Â· Page ${partialLastPage} (1st half) + Para ${prevPara} (last 5 p.)`;
+  }
+}
+
+function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDateStr, completedPortions = []) {
   const result = {
     configured: false,
     targetPages: 0,
@@ -342,18 +422,36 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
     goalComplete: false,
     sundaysRemaining: 0,
     bufferDaysRemaining: 0,
-    totalBufferDays: 0
+    totalBufferDays: 0,
+    targetCompletionDate: "",
+    adjustedCompletionDate: "",
+    daysNeededFromToday: 0,
+    pagesAhead: 0,
+    daysAhead: 0
   };
 
   if (!goal || !goal.startPage || !goal.endPage) return result;
 
   result.configured = true;
-  const targetPages = goal.targetPages || (goal.endPage - goal.startPage + 1);
+  const targetPages = goal.targetPages || Math.max(0.5, Math.round((goal.endPage - goal.startPage + 1) * 10) / 10);
   result.targetPages = targetPages;
 
   let completedCount = 0;
-  for (let p = goal.startPage; p <= goal.endPage; p++) {
-    if (completedPages.includes(p)) completedCount++;
+  const startP = Math.floor(goal.startPage);
+  const endP = Math.floor(goal.endPage);
+  for (let p = startP; p <= endP; p++) {
+    const h1 = completedPortions.includes(`${p}_1`) || completedPages.includes(p);
+    const h2 = completedPortions.includes(`${p}_2`) || completedPages.includes(p);
+    
+    // Check if 1st half is within goal range [goal.startPage, goal.endPage]
+    // 1st half represents [p, p + 0.5]
+    if (p + 0.5 > goal.startPage && p < goal.endPage) {
+      if (h1) completedCount += 0.5;
+    }
+    // 2nd half represents [p + 0.5, p + 1.0]
+    if (p + 1.0 > goal.startPage && p + 0.5 < goal.endPage) {
+      if (h2) completedCount += 0.5;
+    }
   }
   result.completedPagesCount = completedCount;
   result.remainingPages = Math.max(0, targetPages - completedCount);
@@ -363,7 +461,7 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
     result.goalComplete = true;
   }
 
-  // Determine required pace: either explicit targetPace, or computed from targetDays (Sundays are normal days)
+  // Determine required pace: either explicit targetPace, or computed from targetDays
   let requiredPace = 0.5;
   if (goal.targetPace && !isNaN(goal.targetPace)) {
     requiredPace = parseFloat(goal.targetPace);
@@ -378,7 +476,7 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
   const totalHifzDays = requiredPace > 0 ? Math.ceil(targetPages / requiredPace) : 30;
   result.hifzDays = totalHifzDays;
 
-  // Study days passed since start date (all days including Sundays are normal study days)
+  // Study days passed since start date
   let hifzDaysPassed = 0;
   const startDateStr = goal.startDate || currentDateStr;
   const startObj = new Date(startDateStr);
@@ -392,7 +490,7 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
   const hifzDaysRemaining = requiredPace > 0 ? Math.ceil(result.remainingPages / requiredPace) : 0;
   result.hifzDaysRemaining = hifzDaysRemaining;
 
-  const expectedProgress = requiredPace * hifzDaysPassed;
+  const expectedProgress = Math.min(targetPages, requiredPace * hifzDaysPassed);
   result.expectedProgress = parseFloat(expectedProgress.toFixed(2));
 
   const progressDifference = completedCount - expectedProgress;
@@ -403,18 +501,32 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
   result.bufferDaysRemaining = Math.max(0, totalHifzDays - Math.ceil(targetPages / (requiredPace || 1)));
   result.sundaysRemaining = 0;
 
+  // Target Completion Date (original benchmark)
+  const targetDays = goal.targetDays || totalHifzDays;
+  result.targetCompletionDate = goal.targetEndDate || calculateProjectedEndDate(startDateStr, targetDays);
+
+  // Dynamic / Adjusted Completion Date (recalculated from today based on remaining work)
+  const daysNeededFromToday = requiredPace > 0 ? Math.ceil(result.remainingPages / requiredPace) : 0;
+  result.daysNeededFromToday = daysNeededFromToday;
+  result.adjustedCompletionDate = result.remainingPages <= 0 
+    ? "Completed! ðŸŽ‰" 
+    : calculateProjectedEndDate(currentDateStr, Math.max(1, daysNeededFromToday));
+
+  result.pagesAhead = parseFloat(progressDifference.toFixed(2));
+  result.daysAhead = parseFloat(progressBuffer.toFixed(1));
+
   if (result.goalComplete) {
     result.bufferState = 'AHEAD';
-    result.bufferText = `🎉 PROJECT COMPLETE! You have finished Para ${goal.para}.`;
+    result.bufferText = `ðŸŽ‰ PROJECT COMPLETE! You have finished Para ${goal.para}.`;
   } else if (result.progressDifference >= 0.5) {
     result.bufferState = 'AHEAD';
-    result.bufferText = `🟢 ${Math.abs(result.progressBuffer).toFixed(1)} DAYS AHEAD. Target pace: ${requiredPace.toFixed(2)} p/d.`;
+    result.bufferText = `ðŸŸ¢ ${Math.abs(result.progressBuffer).toFixed(1)} DAYS AHEAD (+${result.pagesAhead.toFixed(1)} p. in advance). Target pace: ${requiredPace.toFixed(2)} p/d.`;
   } else if (result.progressDifference <= -0.5) {
     result.bufferState = 'BEHIND';
-    result.bufferText = `🔴 ${Math.abs(result.progressBuffer).toFixed(1)} DAYS BEHIND. Required pace: ${requiredPace.toFixed(2)} p/d.`;
+    result.bufferText = `ðŸ”´ ${Math.abs(result.progressBuffer).toFixed(1)} DAYS BEHIND. Required pace: ${requiredPace.toFixed(2)} p/d.`;
   } else {
     result.bufferState = 'ON TRACK';
-    result.bufferText = `🟢 ON TRACK. Target pace: ${requiredPace.toFixed(2)} pages/day.`;
+    result.bufferText = `ðŸŸ¢ ON TRACK. Target pace: ${requiredPace.toFixed(2)} pages/day.`;
   }
 
   result.currentPace = hifzDaysPassed > 0 ? parseFloat((completedCount / hifzDaysPassed).toFixed(2)) : 0;
@@ -570,7 +682,7 @@ function renderDashboard(container) {
   const todayStr = state.settings.systemDateOverride || new Date().toISOString().split('T')[0];
   const [year, month, day] = todayStr.split('-').map(Number);
   
-  const currentCount = state.completedPages.length;
+  const currentCount = getTotalCompletedPagesCount(state);
   if (window.lastCompletedPagesCount === undefined) {
     window.lastCompletedPagesCount = currentCount;
   }
@@ -585,7 +697,7 @@ function renderDashboard(container) {
   // Lookup active goal dynamically
   let activeGoal = state.monthlyGoals.find(g => g.status === "active") || null;
   const goalId = activeGoal ? activeGoal.id : `goal-${todayStr}`;
-  const metrics = activeGoal ? calculateMonthlyMetrics(activeGoal, state.completedPages, state.dailyRecords, todayStr) : null;
+  const metrics = activeGoal ? calculateMonthlyMetrics(activeGoal, state.completedPages, state.dailyRecords, todayStr, state.completedPortions || []) : null;
   const isSunday = new Date(todayStr).getDay() === 0;
 
   let todayRecord = state.dailyRecords[todayStr];
@@ -598,32 +710,30 @@ function renderDashboard(container) {
     };
   }
 
-  // Calculate Sabaq text
-  let todaySabaqText = "Para Complete! 🎉";
+  // Calculate Sabaq text (with 0.5 portion precision)
+  let todaySabaqText = "Para Complete! ðŸŽ‰";
+  let nextPortion = null;
   if (activeGoal && metrics && metrics.configured) {
     if (metrics.goalComplete) {
-      todaySabaqText = "Para Complete! 🎉";
+      todaySabaqText = "Para Complete! ðŸŽ‰";
     } else {
+      nextPortion = getNextSabaqPortion(activeGoal, state);
       if ((todayRecord.sabaqCompleted || todayRecord.sabaqSkipped) && todayRecord.sabaq) {
         todaySabaqText = todayRecord.sabaq;
       } else {
-        let nextSabaqPage = activeGoal.startPage;
-        while (nextSabaqPage <= activeGoal.endPage && state.completedPages.includes(nextSabaqPage)) {
-          nextSabaqPage++;
-        }
-        if (nextSabaqPage <= activeGoal.endPage) {
-          todaySabaqText = `Para ${activeGoal.para} · Page ${nextSabaqPage}`;
+        if (nextPortion && nextPortion.text) {
+          todaySabaqText = nextPortion.text;
           todayRecord.sabaq = todaySabaqText;
         } else {
-          todaySabaqText = "Para Complete! 🎉";
+          todaySabaqText = "Para Complete! ðŸŽ‰";
         }
       }
     }
   } else if (!activeGoal) {
-    todaySabaqText = "No active goal set";
+    todaySabaqText = "No active project set";
   }
 
-  // Calculate Sabqi text
+  // Calculate Sabqi text (dynamically adjusted for advance completed pages)
   let todaySabqiText = "Revision Mode";
   if (activeGoal && metrics && metrics.configured) {
     if (metrics.goalComplete) {
@@ -632,28 +742,16 @@ function renderDashboard(container) {
       if (todayRecord.sabqiCompleted && todayRecord.sabqi) {
         todaySabqiText = todayRecord.sabqi;
       } else {
-        let completedInThisGoal = [];
-        for (let p = activeGoal.startPage; p <= activeGoal.endPage; p++) {
-          if (state.completedPages.includes(p)) completedInThisGoal.push(p);
-        }
-        if (completedInThisGoal.length > 0) {
-          const lastCompleted = completedInThisGoal[completedInThisGoal.length - 1];
-          todaySabqiText = `Pages ${activeGoal.startPage}–${lastCompleted}`;
-        } else {
-          // If starting active goal with 0 pages completed, revise recent pages of previous Para 2
-          const prevPara = activeGoal.para > 1 ? activeGoal.para - 1 : 30;
-          const prevRange = STANDARD_PARA_PAGES[prevPara];
-          if (prevRange) {
-            const startSabqi = Math.max(prevRange.start, prevRange.end - 9);
-            todaySabqiText = `Para ${prevPara} · Pages ${startSabqi}–${prevRange.end}`;
-          } else {
-            todaySabqiText = "Para 2 · Pages 33–42";
-          }
-        }
+        todaySabqiText = getSabqiRange(activeGoal, state);
         todayRecord.sabqi = todaySabqiText;
       }
     }
   }
+
+  // Next Day Preview (computed dynamically to reflect advance work)
+  const tomorrowNextPortion = activeGoal ? getNextSabaqPortion(activeGoal, state) : null;
+  const tomorrowSabaqText = tomorrowNextPortion ? tomorrowNextPortion.text : "Para Complete! ðŸŽ‰";
+  const tomorrowSabqiText = activeGoal ? getSabqiRange(activeGoal, state) : "Revision Mode";
 
   // Calculate Manzil text (rotates through all completed Paras: e.g. 1, 2, 30)
   let todayManzilText = "Para 30";
@@ -710,7 +808,7 @@ function renderDashboard(container) {
       <div class="card pattern-bg overall-progress-card" style="grid-column: 1 / -1;">
         <div class="flex justify-between align-center" style="margin-bottom: 16px;">
           <div class="flex align-center gap-2">
-            <span style="font-size: 1.25rem;">📖</span>
+            <span style="font-size: 1.25rem;">ðŸ“–</span>
             <h3 style="font-size: 1.1rem; color: var(--text-main); font-weight: 700; margin: 0;">Overall Hifz Progress</h3>
           </div>
           <span class="badge badge-active" style="background-color: var(--primary-color); color: #fff; font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
@@ -774,7 +872,7 @@ function renderDashboard(container) {
       <div class="card" style="background: linear-gradient(135deg, rgba(23, 107, 82, 0.12), rgba(212, 175, 55, 0.16)); border: 2px solid var(--secondary-color); padding: 20px; border-radius: var(--border-radius-md); margin-bottom: 20px;">
         <div class="flex justify-between align-center" style="flex-wrap: wrap; gap: 14px;">
           <div>
-            <div style="font-size: 1.2rem; font-weight: 800; color: var(--secondary-color); margin-bottom: 4px;">🎉 Mubarak! Para ${activeGoal.para} Completed!</div>
+            <div style="font-size: 1.2rem; font-weight: 800; color: var(--secondary-color); margin-bottom: 4px;">ðŸŽ‰ Mubarak! Para ${activeGoal.para} Completed!</div>
             <div style="font-size: 0.9rem; color: var(--text-main);">All ${metrics.targetPages} pages memorized. What would you like to memorize next?</div>
           </div>
           <button id="start-next-para-btn" class="btn btn-primary" data-next-para="${nextPara}" style="background-color: var(--secondary-color); color: #fff; font-weight: 700; padding: 10px 20px;">
@@ -789,7 +887,7 @@ function renderDashboard(container) {
   if (!activeGoal) {
     bodyHtml += `
       <div class="card text-center pattern-bg" style="padding: 44px 24px; border: 2px dashed var(--border-color); margin-bottom: 20px;">
-        <span style="font-size: 2.5rem; display: block; margin-bottom: 12px;">🎯</span>
+        <span style="font-size: 2.5rem; display: block; margin-bottom: 12px;">ðŸŽ¯</span>
         <h2 style="color: var(--primary-color); margin-bottom: 8px;">No Active Hifz Project</h2>
         <p style="color: var(--text-muted); max-width: 480px; margin: 0 auto 20px; font-size: 1rem; line-height: 1.5;">
           Choose any Para and set your speed (e.g. 0.5 pages/day) or target duration (e.g. 30 days) to begin. You can even start a project from past dates!
@@ -803,22 +901,51 @@ function renderDashboard(container) {
     const percentStr = metrics ? metrics.percentComplete.toFixed(0) : "0";
     const paceClass = metrics ? metrics.bufferState.toLowerCase() : "on track";
     const modeBadge = activeGoal.mode === 'duration' 
-      ? `⏱️ Duration Mode (${activeGoal.targetDays || 30} days)` 
-      : `🎯 Pace Mode (${activeGoal.targetPace || 0.5} p/d)`;
+      ? `â±ï¸ Duration Mode (${activeGoal.targetDays || 30} days)` 
+      : `ðŸŽ¯ Pace Mode (${activeGoal.targetPace || 0.5} p/d)`;
+
+    const isHalfPace = (activeGoal.targetPace && activeGoal.targetPace <= 0.75) || activeGoal.mode === 'pace';
+    const viewMode = localStorage.getItem('mudakkir_checklist_view') || (isHalfPace ? 'half' : 'full');
 
     // Generate checklist of pages for this project
+    // When half-pace: show per-day portion slots like "46-46.5", "46.5-47" etc.
     let projectChecklistHtml = '';
-    for (let p = activeGoal.startPage; p <= activeGoal.endPage; p++) {
-      const isDone = state.completedPages.includes(p);
-      projectChecklistHtml += `
-        <div class="project-page-cell ${isDone ? 'done' : ''}" data-page="${p}" title="Click to toggle Page ${p}" style="cursor: pointer; user-select: none; border-radius: 6px; padding: 6px 2px; text-align: center; border: 1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'}; background: ${isDone ? 'rgba(23, 107, 82, 0.12)' : 'var(--card-bg)'}; transition: all 0.15s ease;">
-          <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">P.</div>
-          <div style="font-size: 0.95rem; font-weight: 700; color: ${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">${p}</div>
-          <div style="font-size: 0.7rem; font-weight: bold; color: ${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top: 1px;">
-            ${isDone ? '✓ Done' : '○'}
+    if (isHalfPace) {
+      // Build slots at the goal's targetPace increment (default 0.5)
+      const slotSize = (activeGoal.targetPace && activeGoal.targetPace <= 0.75) ? activeGoal.targetPace : 0.5;
+      for (let p = activeGoal.startPage; p < activeGoal.endPage - 0.001; p = Math.round((p + slotSize) * 100) / 100) {
+        const pageNum = Math.floor(p);
+        const halfNum = (Math.round(p * 2) % 2 === 0) ? 1 : 2; // first slot of a page -> half1, second -> half2
+        const isDone  = isPortionCompleted(state, pageNum, halfNum);
+        const slotEnd = Math.round((p + slotSize) * 100) / 100;
+        const fromStr = Number.isInteger(p) ? String(p) : p.toFixed(1);
+        const toStr   = Number.isInteger(slotEnd) ? String(slotEnd) : slotEnd.toFixed(1);
+        projectChecklistHtml += `
+          <div class="project-page-cell portion-cell ${isDone ? 'done' : ''}"
+               data-page="${pageNum}" data-half="${halfNum}"
+               title="Toggle Page ${fromStr}--${toStr}"
+               style="cursor:pointer; user-select:none; border-radius:6px; padding:6px 4px; text-align:center;
+                      border:1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'};
+                      background:${isDone ? 'rgba(23,107,82,0.12)' : 'var(--card-bg)'}; transition:all 0.15s ease;">
+            <div style="font-size:0.6rem; color:var(--text-muted); text-transform:uppercase; margin-bottom:2px;">Pg.</div>
+            <div style="font-size:0.82rem; font-weight:700; color:${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family:var(--font-brand);">${fromStr}&ndash;${toStr}</div>
+            <div style="font-size:0.65rem; font-weight:bold; color:${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top:2px;">${isDone ? '&#10003; Done' : '&nbsp;'}</div>
           </div>
-        </div>
-      `;
+        `;
+      }
+    } else {
+      for (let p = activeGoal.startPage; p <= activeGoal.endPage; p++) {
+        const isDone = state.completedPages.includes(p);
+        projectChecklistHtml += `
+          <div class="project-page-cell ${isDone ? 'done' : ''}" data-page="${p}" title="Click to toggle Page ${p}" style="cursor: pointer; user-select: none; border-radius: 6px; padding: 6px 2px; text-align: center; border: 1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'}; background: ${isDone ? 'rgba(23, 107, 82, 0.12)' : 'var(--card-bg)'}; transition: all 0.15s ease;">
+            <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">P.</div>
+            <div style="font-size: 0.95rem; font-weight: 700; color: ${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">${p}</div>
+            <div style="font-size: 0.7rem; font-weight: bold; color: ${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top: 1px;">
+              ${isDone ? '&#10003; Done' : '&nbsp;'}
+            </div>
+          </div>
+        `;
+      }
     }
 
     bodyHtml += `
@@ -837,9 +964,9 @@ function renderDashboard(container) {
               Para ${activeGoal.para} <span style="font-size: 1.25rem; font-weight: 500; opacity: 0.85;">(${STANDARD_PARA_PAGES[activeGoal.para]?.name || ''})</span>
             </h2>
             <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-brand); margin-top: 2px;">
-              Pages ${activeGoal.startPage}–${activeGoal.endPage} (${metrics.targetPages} pages)
-              · Started: <strong>${activeGoal.startDate || todayStr}</strong>
-              ${activeGoal.targetEndDate ? `· Projected Finish: <strong>${activeGoal.targetEndDate}</strong>` : ''}
+              Pages ${activeGoal.startPage}â€“${activeGoal.endPage} (${metrics.targetPages} pages)
+              Â· Started: <strong>${activeGoal.startDate || todayStr}</strong>
+              ${activeGoal.targetEndDate ? `Â· Projected Finish: <strong>${activeGoal.targetEndDate}</strong>` : ''}
             </div>
           </div>
           <div class="flex gap-2">
@@ -853,23 +980,98 @@ function renderDashboard(container) {
             <div class="progress-bar-fill" style="width: ${percentStr}%"></div>
           </div>
           <div class="progress-label-row">
-            <span>Progress: <strong style="font-family: var(--font-brand);">${metrics.completedPagesCount} / ${metrics.targetPages} pages</strong></span>
+            <span>Progress: <strong style="font-family: var(--font-brand);">${metrics.completedPagesCount.toFixed(1)} / ${metrics.targetPages} pages</strong></span>
             <span class="progress-percent">${percentStr}% Complete</span>
+          </div>
+        </div>
+
+        <!-- Schedule & Completion Forecast Card (Live dynamic adjustments for advance work) -->
+        <div class="forecast-card" style="background: var(--bg-color); border: 1.5px solid var(--border-color); border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+            <span>ðŸ“… Completion Forecast & Schedule Stats</span>
+            <span class="badge ${metrics.pagesAhead >= 0.5 ? 'badge-active' : (metrics.pagesAhead <= -0.5 ? 'badge-missed' : 'badge-neutral')}" style="font-size: 0.75rem; padding: 2px 8px;">
+              ${metrics.pagesAhead >= 0.5 
+                ? `âš¡ ${metrics.daysAhead.toFixed(1)} Days Ahead (+${metrics.pagesAhead.toFixed(1)} p. advance)` 
+                : (metrics.pagesAhead <= -0.5 
+                    ? `ðŸ”´ ${Math.abs(metrics.daysAhead).toFixed(1)} Days Behind` 
+                    : `ðŸŸ¢ On Target Schedule`)}
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
+            <div class="metric-tile" style="padding: 10px 12px;">
+              <div class="metric-label" style="font-size: 0.7rem;">Target Finish</div>
+              <div class="metric-val" style="font-size: 1.15rem; color: var(--text-main); font-family: var(--font-brand);">
+                ${metrics.targetCompletionDate || 'â€”'}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">
+                At target ${targetPace} p/d
+              </div>
+            </div>
+
+            <div class="metric-tile" style="padding: 10px 12px; border-left: 3px solid var(--secondary-color);">
+              <div class="metric-label" style="font-size: 0.7rem; color: var(--secondary-color);">Adjusted Finish</div>
+              <div class="metric-val" style="font-size: 1.15rem; color: var(--secondary-color); font-family: var(--font-brand);">
+                ${metrics.adjustedCompletionDate || 'â€”'}
+              </div>
+              <div style="font-size: 0.72rem; font-weight: 600; color: ${metrics.daysAhead >= 0 ? 'var(--secondary-color)' : 'var(--color-missed)'}; margin-top: 2px;">
+                ${metrics.daysAhead >= 0 ? `âš¡ Pulls finish ${metrics.daysAhead.toFixed(1)}d earlier` : `Pushed ${Math.abs(metrics.daysAhead).toFixed(1)}d later`}
+              </div>
+            </div>
+
+            <div class="metric-tile" style="padding: 10px 12px;">
+              <div class="metric-label" style="font-size: 0.7rem;">Remaining Work</div>
+              <div class="metric-val" style="font-size: 1.15rem; color: var(--text-main); font-family: var(--font-brand);">
+                ${metrics.remainingPages.toFixed(1)} p.
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">
+                ~${metrics.daysNeededFromToday} study days left
+              </div>
+            </div>
+
+            <div class="metric-tile" style="padding: 10px 12px;">
+              <div class="metric-label" style="font-size: 0.7rem;">Advance Work</div>
+              <div class="metric-val" style="font-size: 1.15rem; color: ${metrics.pagesAhead > 0 ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">
+                ${metrics.pagesAhead > 0 ? `+${metrics.pagesAhead.toFixed(1)} p.` : `${metrics.pagesAhead.toFixed(1)} p.`}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">
+                ${metrics.pagesAhead > 0 ? 'Ahead of baseline' : 'On baseline'}
+              </div>
+            </div>
+          </div>
+
+          <!-- Dynamic Tomorrow Preview -->
+          <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 0.8rem;">
+            <div>
+              <span style="font-weight: 700; color: var(--primary-color);">ðŸŒ… Tomorrow's Sabaq:</span>
+              <span style="color: var(--text-main); margin-left: 4px;"><strong>${tomorrowSabaqText}</strong></span>
+            </div>
+            <div>
+              <span style="font-weight: 700; color: var(--primary-color);">ðŸ”„ Tomorrow's Sabqi:</span>
+              <span style="color: var(--text-main); margin-left: 4px;"><strong>${tomorrowSabqiText}</strong></span>
+            </div>
           </div>
         </div>
 
         <!-- Interactive Project Portion / Page Grid -->
         <div class="project-checklist-box" style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin: 16px 0;">
           <div class="flex justify-between align-center" style="margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-            <div>
+            <div class="flex align-center gap-2">
               <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);">Project Pages Checklist</span>
-              <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 6px;">(Click any page to tick / untick)</span>
+              <span style="font-size: 0.75rem; color: var(--text-muted);">(Click portion to tick / untick)</span>
             </div>
-            <button id="dashboard-project-toggle-all-btn" class="btn btn-outline btn-xs" style="font-size: 0.75rem; padding: 2px 8px;">
-              ${metrics.completedPagesCount === metrics.targetPages ? 'Untick All' : 'Tick All Completed'}
-            </button>
+            <div class="flex gap-2 align-center" style="flex-wrap: wrap;">
+              <div class="view-toggle-pills" style="display: flex; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px;">
+                <button id="view-mode-half-btn" class="btn btn-xs ${viewMode === 'half' ? 'btn-primary' : 'btn-text'}" style="font-size: 0.72rem; padding: 2px 8px; ${viewMode === 'half' ? 'background: var(--secondary-color); color: #fff;' : ''}">0.5p Halves</button>
+                <button id="view-mode-full-btn" class="btn btn-xs ${viewMode === 'full' ? 'btn-primary' : 'btn-text'}" style="font-size: 0.72rem; padding: 2px 8px; ${viewMode === 'full' ? 'background: var(--secondary-color); color: #fff;' : ''}">1p Pages</button>
+              </div>
+              <button id="dashboard-project-tick-next-btn" class="btn btn-secondary btn-xs" style="font-size: 0.75rem; padding: 3px 8px;">+ Tick Next 0.5p</button>
+              <button id="dashboard-project-toggle-all-btn" class="btn btn-outline btn-xs" style="font-size: 0.75rem; padding: 2px 8px;">
+                ${metrics.completedPagesCount >= metrics.targetPages ? 'Untick All' : 'Tick All Completed'}
+              </button>
+            </div>
           </div>
-          <div class="project-page-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px;">
+          <div class="project-page-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(${isHalfPace ? '80px' : '58px'}, 1fr)); gap: 6px;">
             ${projectChecklistHtml}
           </div>
         </div>
@@ -886,7 +1088,7 @@ function renderDashboard(container) {
           </div>
           <div class="metric-tile">
             <div class="metric-label">Remaining</div>
-            <div class="metric-val">${metrics.remainingPages} p.</div>
+            <div class="metric-val">${metrics.remainingPages.toFixed(1)} p.</div>
           </div>
           <div class="metric-tile">
             <div class="metric-label">Required Pace</div>
@@ -914,7 +1116,7 @@ function renderDashboard(container) {
     <div class="card efficiency-card pattern-bg" style="border-left: 4px solid var(--secondary-color); background: linear-gradient(135deg, rgba(23, 107, 82, 0.04) 0%, rgba(212, 175, 55, 0.04) 100%); margin-bottom: 20px;">
       <div class="flex justify-between align-center" style="margin-bottom: 12px;">
         <div class="flex align-center gap-2">
-          <span style="font-size: 1.25rem;">⚡</span>
+          <span style="font-size: 1.25rem;">âš¡</span>
           <h3 style="font-size: 1rem; color: var(--text-main); font-weight: 700; margin: 0;">Memorization Efficiency</h3>
         </div>
         <span class="badge badge-active" style="background-color: var(--secondary-color); color: #fff; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; font-weight: 600;">
@@ -951,12 +1153,12 @@ function renderDashboard(container) {
 
       <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-muted); flex-wrap: wrap; gap: 8px;">
         <span>
-          🎯 Target Pace: <strong style="color: var(--text-main);">${targetPace.toFixed(2)} p/d</strong>
+          ðŸŽ¯ Target Pace: <strong style="color: var(--text-main);">${targetPace.toFixed(2)} p/d</strong>
         </span>
         <span style="color: ${efficiencyPace >= targetPace ? 'var(--secondary-color)' : 'var(--color-missed)'}; font-weight: 600;">
           ${efficiencyPace >= targetPace 
-            ? `🟢 +${paceDiffPercent.toFixed(0)}% Above Target Pace` 
-            : `🔴 ${paceDiffPercent.toFixed(0)}% Below Target Pace`}
+            ? `ðŸŸ¢ +${paceDiffPercent.toFixed(0)}% Above Target Pace` 
+            : `ðŸ”´ ${paceDiffPercent.toFixed(0)}% Below Target Pace`}
         </span>
       </div>
     </div>
@@ -983,10 +1185,10 @@ function renderDashboard(container) {
                   </div>
                   <div class="task-action">
                     ${todayRecord.sabaqCompleted 
-                      ? `<div class="task-completed-pill" data-task="sabaq">✓ Done</div>` 
+                      ? `<div class="task-completed-pill" data-task="sabaq">âœ“ Done</div>` 
                       : todayRecord.sabaqSkipped
                         ? `<div class="flex flex-column align-center gap-1">
-                             <div class="task-skipped-pill" style="background-color: rgba(240, 173, 78, 0.1); color: var(--color-partial); border: 1px solid var(--color-partial); padding: 4px 10px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; line-height: 1.2;">⚠ Skipped</div>
+                             <div class="task-skipped-pill" style="background-color: rgba(240, 173, 78, 0.1); color: var(--color-partial); border: 1px solid var(--color-partial); padding: 4px 10px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; line-height: 1.2;">âš  Skipped</div>
                              <button class="btn btn-text btn-xs undo-sabaq-skip-btn" style="font-size: 0.7rem; padding: 2px; color: var(--text-muted);">Undo</button>
                            </div>`
                         : `<div class="flex gap-2">
@@ -998,15 +1200,12 @@ function renderDashboard(container) {
                 </div>
                 ${(() => {
                   if (todayRecord.sabaqCompleted && activeGoal) {
-                    let nextSabaqPage = activeGoal.startPage;
-                    while (nextSabaqPage <= activeGoal.endPage && state.completedPages.includes(nextSabaqPage)) {
-                      nextSabaqPage++;
-                    }
-                    if (nextSabaqPage <= activeGoal.endPage) {
+                    const nxtAdv = getNextSabaqPortion(activeGoal, state);
+                    if (nxtAdv && nxtAdv.page) {
                       return `
-                        <div style="margin-top: 12px; border-top: 1px dashed var(--border-color); padding-top: 8px; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                          <span style="color: var(--text-muted);">Log additional page? <strong>Page ${nextSabaqPage}</strong></span>
-                          <button class="btn btn-outline btn-xs checkin-btn" data-task="sabaq" style="font-size: 0.7rem; padding: 2px 6px;">+ Log Page ${nextSabaqPage}</button>
+                        <div style="margin-top: 12px; border-top: 1px dashed var(--border-color); padding-top: 8px; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 6px;">
+                          <span style="color: var(--text-muted);">âš¡ Finished early? Log next portion in advance: <strong>${nxtAdv.shortLabel}</strong></span>
+                          <button id="dashboard-advance-sabaq-btn" class="btn btn-outline btn-xs" style="color: var(--secondary-color); border-color: var(--secondary-color); font-size: 0.75rem; padding: 3px 8px;">+ Log 0.5p in Advance</button>
                         </div>
                       `;
                     }
@@ -1026,7 +1225,7 @@ function renderDashboard(container) {
                 </div>
                 <div class="task-action">
                   ${todayRecord.sabqiCompleted 
-                    ? `<div class="task-completed-pill" data-task="sabqi">✓ Done</div>` 
+                    ? `<div class="task-completed-pill" data-task="sabqi">âœ“ Done</div>` 
                     : `<button class="btn btn-secondary btn-xs checkin-btn" data-task="sabqi">Complete</button>`
                   }
                 </div>
@@ -1042,14 +1241,14 @@ function renderDashboard(container) {
                 </div>
                 <div class="task-action">
                   ${todayRecord.manzilCompleted 
-                    ? `<div class="task-completed-pill" data-task="manzil">✓ Done</div>` 
+                    ? `<div class="task-completed-pill" data-task="manzil">âœ“ Done</div>` 
                     : `<button class="btn btn-secondary btn-xs checkin-btn" data-task="manzil">Complete</button>`
                   }
                 </div>
               </div>
             </div>
 
-            ${metrics && metrics.goalComplete ? `<div class="day-banner day-banner-buffer">🔵 Buffer Day: Target complete! Use today for revision.</div>` : ''}
+            ${metrics && metrics.goalComplete ? `<div class="day-banner day-banner-buffer">ðŸ”µ Buffer Day: Target complete! Use today for revision.</div>` : ''}
             
             ${(!metrics || !metrics.goalComplete) && !todayRecord.sabaqCompleted && !todayRecord.sabqiCompleted && !todayRecord.manzilCompleted && !todayRecord.missed
               ? `<div class="day-controls-row"><button id="mark-day-missed-btn" class="btn btn-text btn-xs" style="color: var(--color-missed);">Mark Day Missed / Break</button></div>`
@@ -1058,7 +1257,7 @@ function renderDashboard(container) {
 
             ${todayRecord.missed
               ? `<div class="day-banner ${todayRecord.missedReason === 'break' ? 'day-banner-sunday' : 'day-banner-missed'}">
-                  <span>${todayRecord.missedReason === 'break' ? '🟡 Skip / Break Day' : '🔴 Missed'}: ${todayRecord.missedReason === 'break' ? 'Scheduled break' : todayRecord.missedReason.toUpperCase()}</span>
+                  <span>${todayRecord.missedReason === 'break' ? 'ðŸŸ¡ Skip / Break Day' : 'ðŸ”´ Missed'}: ${todayRecord.missedReason === 'break' ? 'Scheduled break' : todayRecord.missedReason.toUpperCase()}</span>
                   <button id="undo-missed-btn" class="btn btn-outline btn-xs" style="${todayRecord.missedReason === 'break' ? '' : 'border-color: var(--color-missed); color: var(--color-missed);'}">Undo</button>
                  </div>`
               : ''
@@ -1163,32 +1362,110 @@ function renderDashboard(container) {
   const addFirstGoalBtn = document.getElementById('dashboard-add-first-goal-btn');
   if (addFirstGoalBtn) addFirstGoalBtn.onclick = () => openRoadmapEditModal(null);
 
-  // Project checklist page cell click handlers
+  // Project checklist portion cell click handlers (0.5 page basis)
+  document.querySelectorAll('.portion-cell').forEach(cell => {
+    cell.onclick = () => {
+      const pageNum = parseInt(cell.dataset.page, 10);
+      const halfNum = parseInt(cell.dataset.half, 10);
+      const wasDone = togglePagePortion(state, pageNum, halfNum);
+      db.save();
+      if (wasDone) {
+        showToast(`Page ${pageNum} (${halfNum === 1 ? '1st' : '2nd'} Half Â· 0.5p) marked completed! âœ“`, "success");
+      } else {
+        showToast(`Page ${pageNum} (${halfNum === 1 ? '1st' : '2nd'} Half) unticked.`, "info");
+      }
+      renderDashboard(container);
+    };
+  });
+
+  // Project checklist full page cell click handlers
   document.querySelectorAll('.project-page-cell').forEach(cell => {
     cell.onclick = () => {
       const pageNum = parseInt(cell.dataset.page, 10);
       const idx = state.completedPages.indexOf(pageNum);
       if (idx !== -1) {
         state.completedPages.splice(idx, 1);
+        if (state.completedPortions) {
+          state.completedPortions = state.completedPortions.filter(k => !k.startsWith(`${pageNum}_`));
+        }
         db.save();
         showToast(`Page ${pageNum} unticked.`, "info");
       } else {
         state.completedPages.push(pageNum);
         state.completedPages.sort((a, b) => a - b);
+        if (state.completedPortions) {
+          state.completedPortions = state.completedPortions.filter(k => !k.startsWith(`${pageNum}_`));
+        }
         db.save();
-        showToast(`Page ${pageNum} marked completed! ✓`, "success");
+        showToast(`Page ${pageNum} marked completed! âœ“`, "success");
       }
       renderDashboard(container);
     };
   });
 
+  // View Mode switcher
+  const viewHalfBtn = document.getElementById('view-mode-half-btn');
+  if (viewHalfBtn) {
+    viewHalfBtn.onclick = () => {
+      localStorage.setItem('mudakkir_checklist_view', 'half');
+      renderDashboard(container);
+    };
+  }
+  const viewFullBtn = document.getElementById('view-mode-full-btn');
+  if (viewFullBtn) {
+    viewFullBtn.onclick = () => {
+      localStorage.setItem('mudakkir_checklist_view', 'full');
+      renderDashboard(container);
+    };
+  }
+
+  // Tick Next 0.5p button
+  const tickNextBtn = document.getElementById('dashboard-project-tick-next-btn');
+  if (tickNextBtn && activeGoal) {
+    tickNextBtn.onclick = () => {
+      const nxt = getNextSabaqPortion(activeGoal, state);
+      if (nxt && nxt.page) {
+        togglePagePortion(state, nxt.page, nxt.half);
+        db.save();
+        showToast(`Page ${nxt.page} (${nxt.half === 1 ? '1st' : '2nd'} Half Â· 0.5p) completed! âš¡`, "success");
+        renderDashboard(container);
+      } else {
+        showToast("All pages in this project are already completed! ðŸŽ‰", "info");
+      }
+    };
+  }
+
+  // Advance Sabaq button (on today's task card)
+  const advanceSabaqBtn = document.getElementById('dashboard-advance-sabaq-btn');
+  if (advanceSabaqBtn && activeGoal) {
+    advanceSabaqBtn.onclick = () => {
+      const nxt = getNextSabaqPortion(activeGoal, state);
+      if (nxt && nxt.page) {
+        togglePagePortion(state, nxt.page, nxt.half);
+        todayRecord.sabaqCompleted = true;
+        todayRecord.sabaq = `${nxt.text} (Advance)`;
+        db.saveDailyRecord(todayStr, todayRecord);
+        showToast(`âš¡ 0.5 Page logged in advance! Adjusted finish date pulled earlier and Sabqi updated!`, "success");
+        renderDashboard(container);
+      } else {
+        showToast("Project already complete! ðŸŽ‰", "info");
+      }
+    };
+  }
+
   const toggleAllBtn = document.getElementById('dashboard-project-toggle-all-btn');
   if (toggleAllBtn && activeGoal) {
     toggleAllBtn.onclick = () => {
-      const allDone = metrics.completedPagesCount === metrics.targetPages;
+      const allDone = metrics.completedPagesCount >= metrics.targetPages;
       if (allDone) {
         if (confirm(`Untick all pages in Para ${activeGoal.para}?`)) {
           state.completedPages = state.completedPages.filter(p => p < activeGoal.startPage || p > activeGoal.endPage);
+          if (state.completedPortions) {
+            state.completedPortions = state.completedPortions.filter(item => {
+              const p = parseInt(item.split('_')[0], 10);
+              return p < activeGoal.startPage || p > activeGoal.endPage;
+            });
+          }
           db.save();
           showToast(`All pages in Para ${activeGoal.para} unticked.`, "info");
           renderDashboard(container);
@@ -1198,8 +1475,14 @@ function renderDashboard(container) {
           if (!state.completedPages.includes(p)) state.completedPages.push(p);
         }
         state.completedPages.sort((a, b) => a - b);
+        if (state.completedPortions) {
+          state.completedPortions = state.completedPortions.filter(item => {
+            const p = parseInt(item.split('_')[0], 10);
+            return p < activeGoal.startPage || p > activeGoal.endPage;
+          });
+        }
         db.save();
-        showToast(`All pages in Para ${activeGoal.para} marked completed! 🎉`, "success");
+        showToast(`All pages in Para ${activeGoal.para} marked completed! ðŸŽ‰`, "success");
         renderDashboard(container);
       }
     };
@@ -1280,6 +1563,7 @@ function renderCalendarGrid(goal, dailyRecords, activeDateStr, isGoalCompleted) 
   const [currYear, currMonth] = activeDateStr.split('-').map(Number);
   const firstDayIndex = new Date(currYear, currMonth - 1, 1).getDay();
   const daysInMonth = new Date(currYear, currMonth, 0).getDate();
+  const isPaceHalf = goal && (goal.targetPace <= 0.75 || goal.mode === 'pace');
 
   for (let i = 0; i < firstDayIndex; i++) {
     gridContainer.appendChild(document.createElement('div'));
@@ -1292,7 +1576,33 @@ function renderCalendarGrid(goal, dailyRecords, activeDateStr, isGoalCompleted) 
 
     const cell = document.createElement('div');
     cell.className = `calendar-cell ${statusMeta.status === 'sunday' ? 'cell-sunday' : ''} ${dateKey === activeDateStr ? 'active-day' : ''}`;
-    cell.innerText = d;
+    cell.style.display = 'flex';
+    cell.style.flexDirection = 'column';
+    cell.style.alignItems = 'center';
+    cell.style.justifyContent = 'center';
+    cell.style.padding = '2px';
+    cell.style.position = 'relative';
+
+    const dayNum = document.createElement('span');
+    dayNum.innerText = d;
+    cell.appendChild(dayNum);
+
+    // If sabaq completed on this date, show the portion badge (0.5 vs 1.0)
+    if (record && record.sabaqCompleted) {
+      const pill = document.createElement('span');
+      pill.className = 'cal-portion-pill';
+      const isHalf = record.sabaq && (record.sabaq.includes('0.5') || record.sabaq.includes('Half'));
+      pill.innerText = isHalf ? '0.5' : '1.0';
+      cell.appendChild(pill);
+    } else if (dateKey === activeDateStr && isPaceHalf && (!record || !record.sabaqCompleted)) {
+      const pill = document.createElement('span');
+      pill.className = 'cal-portion-pill';
+      pill.style.opacity = '0.6';
+      pill.style.background = 'transparent';
+      pill.style.border = '1px dashed var(--secondary-color)';
+      pill.innerText = '0.5p';
+      cell.appendChild(pill);
+    }
 
     if (statusMeta.status !== 'none') {
       const dot = document.createElement('span');
@@ -1414,7 +1724,7 @@ function renderProjectHub(container) {
           </div>
           ${currentGoal ? renderGoalCardHtml(currentGoal, state.completedPages, state.dailyRecords, todayStr) : `
             <div class="text-center" style="padding: 36px 16px; border: 2px dashed var(--border-color); border-radius: 8px;">
-              <span style="font-size: 2.2rem; display: block; margin-bottom: 8px;">🎯</span>
+              <span style="font-size: 2.2rem; display: block; margin-bottom: 8px;">ðŸŽ¯</span>
               <h4 style="color: var(--text-main); margin-bottom: 6px;">No Active Project Running</h4>
               <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 420px; margin: 0 auto 16px;">
                 You haven't set an ongoing project yet. Start a project now for any Para, set your speed or duration, and pick a start date (even in past dates).
@@ -1449,7 +1759,7 @@ function renderProjectHub(container) {
                   return `
                     <tr style="border-bottom: 1px solid var(--border-color);">
                       <td style="padding: 12px 8px; font-weight: 600; color: var(--primary-color);">Para ${g.para} <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[g.para]?.name || ''})</span></td>
-                      <td style="padding: 12px 8px; font-family: var(--font-brand);">${g.startPage ? `${g.startPage}–${g.endPage}` : '—'}</td>
+                      <td style="padding: 12px 8px; font-family: var(--font-brand);">${g.startPage ? `${g.startPage}â€“${g.endPage}` : 'â€”'}</td>
                       <td style="padding: 12px 8px; font-size: 0.8rem; color: var(--text-muted);">${modeStr}</td>
                       <td style="padding: 12px 8px; font-family: var(--font-brand);">${m.completedPagesCount} / ${m.targetPages || 0}</td>
                       <td style="padding: 12px 8px;"><span class="badge badge-${g.status}">${g.status}</span></td>
@@ -1477,17 +1787,17 @@ function renderProjectHub(container) {
               <p style="color: var(--text-muted); font-size: 0.85rem; padding: 12px 0;">No upcoming projects queued. Click <strong>+ Add</strong> to queue up your next Para (e.g. Para 4).</p>
             ` : futureGoals.map(g => {
               const configured = g.startPage && g.endPage;
-              const rangeStr = configured ? `Pages ${g.startPage}–${g.endPage}` : 'Page range not configured';
+              const rangeStr = configured ? `Pages ${g.startPage}â€“${g.endPage}` : 'Page range not configured';
               const modeLabel = g.mode === 'duration' ? `Duration: ${g.targetDays || 30} days` : `Pace: ${g.targetPace || 0.5} p/d`;
               return `
                 <div class="roadmap-item" style="display: flex; flex-direction: column; gap: 8px;">
                   <div class="roadmap-month-info">
                     <span class="roadmap-month-target" style="font-size: 1rem; font-weight: 700;">Para ${g.para} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[g.para]?.name || ''})</span></span>
-                    <span class="roadmap-month-pages" style="color: ${configured ? 'var(--text-muted)' : 'var(--color-missed)'}">${rangeStr} · ${modeLabel}</span>
+                    <span class="roadmap-month-pages" style="color: ${configured ? 'var(--text-muted)' : 'var(--color-missed)'}">${rangeStr} Â· ${modeLabel}</span>
                     ${g.startDate ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">Start: ${g.startDate}</div>` : ''}
                   </div>
                   <div class="flex gap-2 justify-between align-center" style="margin-top: 4px;">
-                    <button class="btn btn-secondary btn-xs activate-project-btn" data-goal-id="${g.id}">▶ Activate</button>
+                    <button class="btn btn-secondary btn-xs activate-project-btn" data-goal-id="${g.id}">â–¶ Activate</button>
                     <div class="flex gap-1">
                       <button class="btn btn-outline btn-xs edit-roadmap-goal-btn" data-goal-id="${g.id}">Edit</button>
                       <button class="btn btn-text btn-xs delete-project-btn" data-goal-id="${g.id}" style="color: var(--color-missed); font-size: 0.75rem;">Delete</button>
@@ -1539,20 +1849,37 @@ function renderProjectHub(container) {
   const planCardNewGoalBtn = document.getElementById('plan-card-new-goal-btn');
   if (planCardNewGoalBtn) planCardNewGoalBtn.onclick = () => openRoadmapEditModal(null);
 
-  // Hook up page checklist in Project Hub
+  // Hook up page checklist in Project Hub (supporting full pages and half-page portions)
   document.querySelectorAll('.hub-page-cell').forEach(cell => {
     cell.onclick = () => {
       const pageNum = parseInt(cell.dataset.page, 10);
-      const idx = state.completedPages.indexOf(pageNum);
-      if (idx !== -1) {
-        state.completedPages.splice(idx, 1);
+      if (cell.classList.contains('portion-cell')) {
+        const halfNum = parseInt(cell.dataset.half, 10);
+        const wasDone = togglePagePortion(state, pageNum, halfNum);
         db.save();
-        showToast(`Page ${pageNum} unticked.`, "info");
+        if (wasDone) {
+          showToast(`Page ${pageNum} (${halfNum === 1 ? '1st' : '2nd'} Half · 0.5p) marked completed! ✓`, 'success');
+        } else {
+          showToast(`Page ${pageNum} (${halfNum === 1 ? '1st' : '2nd'} Half) unticked.`, 'info');
+        }
       } else {
-        state.completedPages.push(pageNum);
-        state.completedPages.sort((a, b) => a - b);
-        db.save();
-        showToast(`Page ${pageNum} marked completed! ✓`, "success");
+        const idx = state.completedPages.indexOf(pageNum);
+        if (idx !== -1) {
+          state.completedPages.splice(idx, 1);
+          if (state.completedPortions) {
+            state.completedPortions = state.completedPortions.filter(k => !k.startsWith(`${pageNum}_`));
+          }
+          db.save();
+          showToast(`Page ${pageNum} unticked.`, 'info');
+        } else {
+          state.completedPages.push(pageNum);
+          state.completedPages.sort((a, b) => a - b);
+          if (state.completedPortions) {
+            state.completedPortions = state.completedPortions.filter(k => !k.startsWith(`${pageNum}_`));
+          }
+          db.save();
+          showToast(`Page ${pageNum} marked completed! ✓`, 'success');
+        }
       }
       renderProjectHub(container);
     };
@@ -1565,19 +1892,39 @@ function renderGoalCardHtml(goal, completedPages, dailyRecords, todayStr) {
   const metrics = calculateMonthlyMetrics(goal, completedPages, dailyRecords, todayStr);
   const percentStr = metrics.percentComplete.toFixed(0);
   const modeBadge = goal.mode === 'duration' ? `Duration: ${goal.targetDays || 30} days` : `Pace: ${goal.targetPace || 0.5} p/d`;
+  const isHalfPace = (goal.targetPace && goal.targetPace <= 0.75) || goal.mode === 'pace';
 
   let pagesHtml = '';
-  for (let p = goal.startPage; p <= goal.endPage; p++) {
-    const isDone = completedPages.includes(p);
-    pagesHtml += `
-      <div class="hub-page-cell ${isDone ? 'done' : ''}" data-page="${p}" title="Click to toggle Page ${p}" style="cursor: pointer; user-select: none; border-radius: 6px; padding: 6px 2px; text-align: center; border: 1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'}; background: ${isDone ? 'rgba(23, 107, 82, 0.12)' : 'var(--bg-color)'}; transition: all 0.15s ease;">
-        <div style="font-size: 0.65rem; color: var(--text-muted);">P.</div>
-        <div style="font-size: 0.95rem; font-weight: 700; color: ${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">${p}</div>
-        <div style="font-size: 0.7rem; font-weight: bold; color: ${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top: 1px;">
-          ${isDone ? '✓ Done' : '○'}
+  if (isHalfPace) {
+    const slotSize = (goal.targetPace && goal.targetPace <= 0.75) ? goal.targetPace : 0.5;
+    for (let p = goal.startPage; p < goal.endPage - 0.001; p = Math.round((p + slotSize) * 100) / 100) {
+      const pageNum = Math.floor(p);
+      const halfNum = (Math.round(p * 2) % 2 === 0) ? 1 : 2;
+      const isDone = isPortionCompleted(db.getState(), pageNum, halfNum);
+      const slotEnd = Math.round((p + slotSize) * 100) / 100;
+      const fromStr = Number.isInteger(p) ? String(p) : p.toFixed(1);
+      const toStr   = Number.isInteger(slotEnd) ? String(slotEnd) : slotEnd.toFixed(1);
+      pagesHtml += `
+        <div class="hub-page-cell portion-cell ${isDone ? 'done' : ''}" data-page="${pageNum}" data-half="${halfNum}" title="Toggle Page ${fromStr}--${toStr}" style="cursor: pointer; user-select: none; border-radius: 6px; padding: 6px 4px; text-align: center; border: 1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'}; background: ${isDone ? 'rgba(23, 107, 82, 0.12)' : 'var(--bg-color)'}; transition: all 0.15s ease;">
+          <div style="font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px;">Pg.</div>
+          <div style="font-size: 0.82rem; font-weight: 700; color: ${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">${fromStr}&ndash;${toStr}</div>
+          <div style="font-size: 0.65rem; font-weight: bold; color: ${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top: 2px;">${isDone ? '&#10003; Done' : '&nbsp;'}</div>
         </div>
-      </div>
-    `;
+      `;
+    }
+  } else {
+    for (let p = goal.startPage; p <= goal.endPage; p++) {
+      const isDone = completedPages.includes(p);
+      pagesHtml += `
+        <div class="hub-page-cell ${isDone ? 'done' : ''}" data-page="${p}" title="Click to toggle Page ${p}" style="cursor: pointer; user-select: none; border-radius: 6px; padding: 6px 2px; text-align: center; border: 1.5px solid ${isDone ? 'var(--secondary-color)' : 'var(--border-color)'}; background: ${isDone ? 'rgba(23, 107, 82, 0.12)' : 'var(--bg-color)'}; transition: all 0.15s ease;">
+          <div style="font-size: 0.65rem; color: var(--text-muted);">P.</div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: ${isDone ? 'var(--secondary-color)' : 'var(--text-main)'}; font-family: var(--font-brand);">${p}</div>
+          <div style="font-size: 0.7rem; font-weight: bold; color: ${isDone ? 'var(--secondary-color)' : 'transparent'}; margin-top: 1px;">
+            ${isDone ? '&#10003; Done' : '&nbsp;'}
+          </div>
+        </div>
+      `;
+    }
   }
 
   return `
@@ -1586,8 +1933,8 @@ function renderGoalCardHtml(goal, completedPages, dailyRecords, todayStr) {
         <h4 style="font-size: 1.25rem; color: var(--primary-color); font-weight: 700; margin-bottom: 2px;">
           Para ${goal.para} <span style="font-size: 0.95rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[goal.para]?.name || ''})</span>
         </h4>
-        <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-brand);">Range: Pages ${goal.startPage}–${goal.endPage} (${metrics.targetPages} p.) · ${modeBadge}</span>
-        ${goal.startDate ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Started: <strong>${goal.startDate}</strong> ${goal.targetEndDate ? `· Projected Finish: <strong>${goal.targetEndDate}</strong>` : ''}</div>` : ''}
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-brand);">Range: Pages ${goal.startPage}â€“${goal.endPage} (${metrics.targetPages} p.) Â· ${modeBadge}</span>
+        ${goal.startDate ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Started: <strong>${goal.startDate}</strong> ${goal.targetEndDate ? `Â· Projected Finish: <strong>${goal.targetEndDate}</strong>` : ''}</div>` : ''}
       </div>
       <div style="text-align: right;"><span class="badge badge-${goal.status}">${goal.status.toUpperCase()}</span></div>
     </div>
@@ -1602,7 +1949,7 @@ function renderGoalCardHtml(goal, completedPages, dailyRecords, todayStr) {
         <span style="font-weight: 700; font-size: 0.85rem; color: var(--text-main);">Project Pages Checklist</span>
         <span style="font-size: 0.75rem; color: var(--text-muted);">Click any page to toggle</span>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(${isHalfPace ? "80px" : "58px"}, 1fr)); gap: 6px;">
         ${pagesHtml}
       </div>
     </div>
@@ -1631,7 +1978,7 @@ function calculateProjection(state, remainingPages) {
 
   return {
     juzCompleted,
-    projectedDate: remainingPages === 0 ? "Completed 🎉" : projectedDateText,
+    projectedDate: remainingPages === 0 ? "Completed ðŸŽ‰" : projectedDateText,
     onTrack: true,
     message
   };
@@ -1686,7 +2033,7 @@ function renderJuz(container) {
       }
       cell.innerHTML = `
         <div class="juz-num">${j}</div>
-        <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-brand); margin: 2px 0;">${range.start}–${range.end}</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-brand); margin: 2px 0;">${range.start}â€“${range.end}</div>
         <div class="juz-label">${compCount}/${totalPages} p.</div>
         <div class="juz-status-dot"></div>
       `;
@@ -1725,7 +2072,7 @@ function renderJuz(container) {
       <div class="juz-details-box" style="margin-bottom: 0;">
         <div class="flex justify-between align-center" style="margin-bottom: 16px;">
           <div>
-            <h3 style="color: var(--primary-color);">Juz ${juzNum} — ${STANDARD_PARA_PAGES[juzNum].name}</h3>
+            <h3 style="color: var(--primary-color);">Juz ${juzNum} â€” ${STANDARD_PARA_PAGES[juzNum].name}</h3>
             <span style="font-size: 0.8rem; color: var(--text-muted);">${JUZ_SURAHS[juzNum]}</span>
           </div>
           <span class="badge badge-${isCompleted ? 'completed' : 'active'}">${isCompleted ? 'Completed' : 'In Progress'}</span>
@@ -1733,7 +2080,7 @@ function renderJuz(container) {
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
           <div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">PAGE RANGE</div>
-            <div style="font-size: 1.1rem; font-weight: 600; font-family: var(--font-brand);">Pages ${range.start}–${range.end}</div>
+            <div style="font-size: 1.1rem; font-weight: 600; font-family: var(--font-brand);">Pages ${range.start}â€“${range.end}</div>
           </div>
           <div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">PROGRESS</div>
@@ -1898,17 +2245,17 @@ function renderStats(container) {
       
       let statusHtml = "";
       if (isSunday) {
-        statusHtml = `<span style="color: var(--text-muted); font-size: 0.8rem;">⚪ Sunday Rest</span>`;
+        statusHtml = `<span style="color: var(--text-muted); font-size: 0.8rem;">âšª Sunday Rest</span>`;
       } else if (rec.missed) {
         if (rec.missedReason === 'break') {
           statusHtml = `<span class="badge badge-partial" style="font-size: 0.75rem; text-decoration: none;">Planned Break / Skip</span>`;
         } else {
-          statusHtml = `<span class="badge badge-skipped" style="background-color: rgba(217,83,79,0.1); color: var(--color-missed); text-decoration: none; font-size: 0.75rem;">🔴 Missed: ${rec.missedReason || 'Other'}</span>`;
+          statusHtml = `<span class="badge badge-skipped" style="background-color: rgba(217,83,79,0.1); color: var(--color-missed); text-decoration: none; font-size: 0.75rem;">ðŸ”´ Missed: ${rec.missedReason || 'Other'}</span>`;
         }
       } else {
-        const sabaqDot = rec.sabaqCompleted ? '🟢 Sabaq' : (rec.sabaqSkipped ? '🟡 Sabaq' : '⚪ Sabaq');
-        const sabqiDot = rec.sabqiCompleted ? '🟢 Sabqi' : '⚪ Sabqi';
-        const manzilDot = rec.manzilCompleted ? '🟢 Manzil' : '⚪ Manzil';
+        const sabaqDot = rec.sabaqCompleted ? 'ðŸŸ¢ Sabaq' : (rec.sabaqSkipped ? 'ðŸŸ¡ Sabaq' : 'âšª Sabaq');
+        const sabqiDot = rec.sabqiCompleted ? 'ðŸŸ¢ Sabqi' : 'âšª Sabqi';
+        const manzilDot = rec.manzilCompleted ? 'ðŸŸ¢ Manzil' : 'âšª Manzil';
         
         statusHtml = `
           <div class="flex gap-2" style="font-size: 0.8rem; margin-top: 4px;">
@@ -1982,9 +2329,9 @@ function renderStats(container) {
               <div class="juz-detail-row"><span class="juz-detail-label">Fully Completed Days (All 3 Tasks)</span><span class="juz-detail-val" style="color: var(--color-complete); font-weight: 700;">${fullyCompletedCount} days</span></div>
               <div class="juz-detail-row"><span class="juz-detail-label">Incomplete Tracking Days</span><span class="juz-detail-val" style="color: var(--color-missed); font-weight: 700;">${incompleteDaysCount} days</span></div>
               <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
-                <div class="flex justify-between" style="margin-bottom: 4px;"><span>• Partially Completed:</span><span>${partiallyCompletedCount} d.</span></div>
-                <div class="flex justify-between" style="margin-bottom: 4px;"><span>• Skipped / Breaks:</span><span>${skippedBreaksCount} d.</span></div>
-                <div class="flex justify-between"><span>• Missed:</span><span>${missedDaysCount} d.</span></div>
+                <div class="flex justify-between" style="margin-bottom: 4px;"><span>â€¢ Partially Completed:</span><span>${partiallyCompletedCount} d.</span></div>
+                <div class="flex justify-between" style="margin-bottom: 4px;"><span>â€¢ Skipped / Breaks:</span><span>${skippedBreaksCount} d.</span></div>
+                <div class="flex justify-between"><span>â€¢ Missed:</span><span>${missedDaysCount} d.</span></div>
               </div>
             </div>
           </div>
@@ -2007,7 +2354,7 @@ function renderStats(container) {
                   <div class="weak-spot-item">
                     <div class="weak-spot-info">
                       <span class="weak-spot-pages">Page ${pageNum}</span>
-                      <span class="weak-spot-meta">Para ${representativeWS.para} · <span class="weak-spot-count">${pageStruggleCounts[pageNum]} struggles</span></span>
+                      <span class="weak-spot-meta">Para ${representativeWS.para} Â· <span class="weak-spot-count">${pageStruggleCounts[pageNum]} struggles</span></span>
                     </div>
                     <button class="btn btn-outline btn-xs resolve-ws-btn" data-page="${pageNum}">Resolve</button>
                   </div>
@@ -2022,7 +2369,7 @@ function renderStats(container) {
             <div class="diary-list">
               ${diaryEntries.map(e => `
                 <div class="diary-item">
-                  <div class="diary-header"><strong>${e.date}</strong><span>${'★'.repeat(e.sessionQuality)}</span></div>
+                  <div class="diary-header"><strong>${e.date}</strong><span>${'â˜…'.repeat(e.sessionQuality)}</span></div>
                   <div class="diary-body">"${e.notes || 'Checked in.'}"</div>
                 </div>
               `).join('')}
@@ -2055,46 +2402,111 @@ function renderStats(container) {
 // E. SETTINGS VIEW
 function renderSettings(container) {
   const state = db.getState();
+  const syncCfg  = (typeof getSavedSyncConfig !== 'undefined') ? getSavedSyncConfig() : null;
+  const syncUser = (typeof getSavedUserId    !== 'undefined') ? getSavedUserId()     : '';
+  const syncOn   = (typeof isSyncEnabled    !== 'undefined') ? isSyncEnabled()      : false;
+  const syncSt   = (typeof getSyncStatus    !== 'undefined') ? getSyncStatus()      : 'idle';
+
+  const statusColor = { ok: '#16a34a', error: '#dc2626', syncing: '#d97706', idle: 'var(--text-muted)' }[syncSt] || 'var(--text-muted)';
+  const statusLabel = { ok: '✅ Connected', error: '❌ Error', syncing: '⏳ Syncing…', idle: '⚪ Not configured' }[syncSt] || '⚪ Not configured';
+
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 24px;">
       <div class="card pattern-bg" style="padding: 20px;">
         <h2 style="color: var(--primary-color);">Settings</h2>
-        <p style="color: var(--text-muted); font-size: 0.85rem;">Wipe logs, configure themes, simulate dates, or backup database files.</p>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">Wipe logs, configure themes, simulate dates, backup data, or set up cloud sync.</p>
       </div>
 
       <div class="plan-container">
         <div class="dashboard-main-col">
           <div class="card">
-            <h3 style="color: var(--text-main); margin-bottom: 16px;">Schedule & theme</h3>
+            <h3 style="color: var(--text-main); margin-bottom: 16px;">Schedule &amp; theme</h3>
             <div class="settings-list">
               <div class="settings-group">
                 <label for="settings-rest-day">Weekly Rest Day</label>
                 <select id="settings-rest-day" class="form-select">
-                  <option value="Sunday" ${state.settings.weeklyRestDay === "Sunday" ? "selected" : ""}>Sunday</option>
-                  <option value="Friday" ${state.settings.weeklyRestDay === "Friday" ? "selected" : ""}>Friday</option>
+                  <option value="Sunday"   ${state.settings.weeklyRestDay === "Sunday"   ? "selected" : ""}>Sunday</option>
+                  <option value="Friday"   ${state.settings.weeklyRestDay === "Friday"   ? "selected" : ""}>Friday</option>
                   <option value="Saturday" ${state.settings.weeklyRestDay === "Saturday" ? "selected" : ""}>Saturday</option>
-                  <option value="None" ${state.settings.weeklyRestDay === "None" ? "selected" : ""}>None</option>
+                  <option value="None"     ${state.settings.weeklyRestDay === "None"     ? "selected" : ""}>None</option>
                 </select>
               </div>
               <div class="settings-group">
                 <label for="settings-theme">Theme Appearance</label>
                 <select id="settings-theme" class="form-select">
                   <option value="light" ${state.settings.theme === "light" ? "selected" : ""}>Light Mode</option>
-                  <option value="dark" ${state.settings.theme === "dark" ? "selected" : ""}>Dark Mode</option>
+                  <option value="dark"  ${state.settings.theme === "dark"  ? "selected" : ""}>Dark Mode</option>
                 </select>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <h3 style="color: var(--primary-color); margin-bottom: 8px;">Simulated Date (Calculations Testing)</h3>
+            <h3 style="color: var(--text-main); margin-bottom: 8px;">Simulated Date (Calculations Testing)</h3>
             <input type="text" id="settings-date-override" class="form-input" placeholder="e.g. 2026-09-11" value="${state.settings.systemDateOverride || ""}">
+          </div>
+
+          <!-- ☁️ CLOUD SYNC CARD -->
+          <div class="card" style="border: 1.5px solid ${syncOn ? 'var(--secondary-color)' : 'var(--border-color)'};">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+              <h3 style="color: var(--text-main); margin:0;">☁️ Cloud Sync</h3>
+              <span style="font-size:0.8rem; font-weight:700; color:${statusColor};">${statusLabel}</span>
+            </div>
+            <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px; line-height:1.5;">
+              Sync your data across devices using <strong>Firebase Realtime Database</strong> (free).
+              <a href="https://console.firebase.google.com/" target="_blank" style="color:var(--secondary-color);">Create a free project →</a>
+            </p>
+
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:0.8rem; font-weight:600;">Sync User ID <span style="color:var(--text-muted); font-weight:400;">(any unique name, e.g. "mudakkir_ahmad")</span></label>
+                <input type="text" id="sync-user-id" class="form-input" placeholder="e.g. mudakkir_ahmad" value="${syncUser}" style="font-size:0.85rem;">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:0.8rem; font-weight:600;">Firebase Database URL</label>
+                <input type="text" id="sync-db-url" class="form-input" placeholder="https://your-project-default-rtdb.firebaseio.com" value="${syncCfg ? syncCfg.databaseURL || '' : ''}" style="font-size:0.82rem;">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:0.8rem; font-weight:600;">Firebase API Key</label>
+                <input type="text" id="sync-api-key" class="form-input" placeholder="AIza..." value="${syncCfg ? syncCfg.apiKey || '' : ''}" style="font-size:0.82rem;">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:0.8rem; font-weight:600;">Firebase Project ID</label>
+                <input type="text" id="sync-project-id" class="form-input" placeholder="your-project-id" value="${syncCfg ? syncCfg.projectId || '' : ''}" style="font-size:0.82rem;">
+              </div>
+
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
+                <button id="sync-connect-btn" class="btn btn-primary" style="flex:1; min-width:120px;">
+                  ${syncOn ? '🔄 Re-connect' : '🔗 Connect & Enable'}
+                </button>
+                <button id="sync-refresh-btn" class="btn btn-outline" style="flex:1; min-width:120px;" ${!syncOn ? 'disabled' : ''}>
+                  ⬇️ Refresh from Cloud
+                </button>
+                <button id="sync-push-btn" class="btn btn-outline" style="flex:1; min-width:120px;" ${!syncOn ? 'disabled' : ''}>
+                  ⬆️ Push to Cloud
+                </button>
+              </div>
+              ${syncOn ? `<button id="sync-disconnect-btn" class="btn btn-text" style="font-size:0.78rem; color:var(--color-missed); align-self:flex-start; padding:0;">Disconnect &amp; remove config</button>` : ''}
+            </div>
+
+            <div id="sync-status-msg" style="margin-top:12px; font-size:0.82rem; color:var(--text-muted);"></div>
+
+            <details style="margin-top:14px;">
+              <summary style="font-size:0.8rem; color:var(--text-muted); cursor:pointer;">📖 How to get these values</summary>
+              <ol style="font-size:0.8rem; color:var(--text-muted); margin:8px 0 0 16px; line-height:1.7;">
+                <li>Go to <a href="https://console.firebase.google.com/" target="_blank" style="color:var(--secondary-color);">console.firebase.google.com</a></li>
+                <li>Create a new project (disable Google Analytics)</li>
+                <li>Go to <strong>Build → Realtime Database → Create database</strong> (start in test mode)</li>
+                <li>Go to <strong>Project Settings (⚙️) → Your apps → Add app → Web</strong></li>
+                <li>Copy the <code>apiKey</code>, <code>databaseURL</code>, and <code>projectId</code> from the config object</li>
+              </ol>
+            </details>
           </div>
         </div>
 
         <div class="dashboard-side-col">
           <div class="card">
-            <h3 style="color: var(--text-main); margin-bottom: 16px;">Backup & Restore</h3>
+            <h3 style="color: var(--text-main); margin-bottom: 16px;">Backup &amp; Restore</h3>
             <div class="backup-actions">
               <button id="backup-export-btn" class="btn btn-outline w-full" style="margin-bottom: 8px;">Export (JSON)</button>
               <div class="file-input-wrapper">
@@ -2113,7 +2525,7 @@ function renderSettings(container) {
     </div>
   `;
 
-  // Bindings
+  // ── Basic settings bindings ──────────────────────────────────────────────
   document.getElementById('settings-rest-day').onchange = (e) => {
     db.updateSettings({ weeklyRestDay: e.target.value });
     showToast("Rest day updated.", "success");
@@ -2174,7 +2586,90 @@ function renderSettings(container) {
       setTimeout(() => window.location.reload(), 1000);
     }
   };
+
+  // ── Cloud Sync bindings ──────────────────────────────────────────────────
+  if (typeof initSync === 'undefined') return; // sync.js not loaded yet
+
+  const syncMsg = document.getElementById('sync-status-msg');
+  const setSyncMsg = (msg, color = 'var(--text-muted)') => {
+    syncMsg.style.color = color;
+    syncMsg.textContent = msg;
+  };
+
+  document.getElementById('sync-connect-btn').onclick = async () => {
+    const userId  = document.getElementById('sync-user-id').value.trim();
+    const dbUrl   = document.getElementById('sync-db-url').value.trim();
+    const apiKey  = document.getElementById('sync-api-key').value.trim();
+    const projId  = document.getElementById('sync-project-id').value.trim();
+
+    if (!userId || !dbUrl || !apiKey || !projId) {
+      setSyncMsg('Please fill in all fields.', '#dc2626');
+      return;
+    }
+
+    const cfg = { apiKey, databaseURL: dbUrl, projectId: projId };
+    setSyncMsg('Connecting…');
+    const result = await initSync(cfg, userId);
+
+    if (result.ok) {
+      saveSyncConfig(cfg, userId);
+      setSyncMsg('Connected! Pushing current data…', '#16a34a');
+      await pushToCloud(db.getState());
+      setSyncMsg('✅ Synced! Refresh this page to see updated status.', '#16a34a');
+      showToast('Cloud sync enabled!', 'success');
+      // Re-render after short delay so status badge updates
+      setTimeout(() => renderSettings(container), 1200);
+    } else {
+      setSyncMsg('❌ ' + (result.error || 'Connection failed.'), '#dc2626');
+      showToast('Sync connection failed.', 'error');
+    }
+  };
+
+  const refreshBtn = document.getElementById('sync-refresh-btn');
+  if (refreshBtn) refreshBtn.onclick = async () => {
+    setSyncMsg('Pulling from cloud…');
+    const result = await pullFromCloud();
+    if (result.ok && result.state) {
+      if (confirm('Replace local data with cloud data? This will reload the app.')) {
+        try {
+          localStorage.setItem('mudakkir_state', JSON.stringify(result.state));
+          showToast('Data refreshed from cloud!', 'success');
+          setTimeout(() => window.location.reload(), 800);
+        } catch(e) {
+          setSyncMsg('❌ Could not apply cloud data: ' + e.message, '#dc2626');
+        }
+      } else {
+        setSyncMsg('Refresh cancelled.', 'var(--text-muted)');
+      }
+    } else if (result.ok && !result.state) {
+      setSyncMsg('No cloud data found yet. Push first from another device.', '#d97706');
+    } else {
+      setSyncMsg('❌ ' + (result.error || 'Pull failed.'), '#dc2626');
+    }
+  };
+
+  const pushBtn = document.getElementById('sync-push-btn');
+  if (pushBtn) pushBtn.onclick = async () => {
+    setSyncMsg('Pushing to cloud…');
+    const result = await pushToCloud(db.getState());
+    if (result.ok) {
+      setSyncMsg('✅ Data pushed to cloud successfully!', '#16a34a');
+      showToast('Pushed to cloud!', 'success');
+    } else {
+      setSyncMsg('❌ ' + (result.error || 'Push failed.'), '#dc2626');
+    }
+  };
+
+  const disconnectBtn = document.getElementById('sync-disconnect-btn');
+  if (disconnectBtn) disconnectBtn.onclick = () => {
+    if (confirm('Disconnect cloud sync? Your local data stays intact.')) {
+      clearSyncConfig();
+      showToast('Cloud sync disconnected.', 'success');
+      renderSettings(container);
+    }
+  };
 }
+
 
 // 5. GLOBAL ROUTER & BOOTSTRAP
 function initRouter() {
@@ -2245,7 +2740,7 @@ function openPageRangeModal(goalId) {
   document.getElementById('range-start-page').value = goal.startPage || standard.start;
   document.getElementById('range-end-page').value = goal.endPage || standard.end;
   document.getElementById('range-target-override').value = goal.targetPages || "";
-  document.getElementById('standard-range-display').innerText = `${standard.start}–${standard.end}`;
+  document.getElementById('standard-range-display').innerText = `${standard.start}â€“${standard.end}`;
   document.getElementById('page-range-modal').classList.remove('hidden');
 }
 
@@ -2253,7 +2748,8 @@ function openCheckinModal(dateStr, taskType) {
   const state = db.getState();
   let record = db.getDailyRecord(dateStr);
   const goalId = dateStr.slice(0, 7);
-  const goal = state.monthlyGoals.find(g => g.id === goalId);
+  const activeGoal = state.monthlyGoals.find(g => g.status === "active") || state.monthlyGoals.find(g => g.id === goalId) || state.monthlyGoals[0];
+  const goal = activeGoal;
   const paraNum = goal ? goal.para : 1;
 
   if (!record) {
@@ -2280,17 +2776,24 @@ function openCheckinModal(dateStr, taskType) {
     sabqiRangeGroup.classList.add('hidden');
     title = "Complete Sabaq";
     
-    let nextSabaq = goal ? goal.startPage : 1;
-    if (goal) {
-      let page = goal.startPage;
-      while (page <= goal.endPage && state.completedPages.includes(page)) page++;
-      nextSabaq = page <= goal.endPage ? page : goal.endPage;
+    const nxt = getNextSabaqPortion(goal, state);
+    const targetPage = nxt && nxt.page ? nxt.page : (goal ? goal.startPage : 1);
+    
+    document.getElementById('checkin-sabaq-start').value = targetPage;
+    document.getElementById('checkin-sabaq-end').value = targetPage;
+    
+    const half1Radio = document.getElementById('sabaq-portion-half1');
+    const half2Radio = document.getElementById('sabaq-portion-half2');
+    const fullRadio = document.getElementById('sabaq-portion-full');
+    if (nxt && nxt.half === 2) {
+      if (half2Radio) half2Radio.checked = true;
+    } else if (goal && goal.targetPace && goal.targetPace > 0.75) {
+      if (fullRadio) fullRadio.checked = true;
+    } else {
+      if (half1Radio) half1Radio.checked = true;
     }
     
-    document.getElementById('checkin-sabaq-start').value = nextSabaq;
-    document.getElementById('checkin-sabaq-end').value = nextSabaq;
-    
-    subtitle = `Sabaq target: Page ${nextSabaq}`;
+    subtitle = nxt ? nxt.text : `Sabaq target: Page ${targetPage}`;
     document.getElementById(`conf-${record.sabaqConfidence || 'okay'}`).checked = true;
 
   } else if (taskType === 'sabqi') {
@@ -2298,7 +2801,7 @@ function openCheckinModal(dateStr, taskType) {
     sabaqRangeGroup.classList.add('hidden');
     sabqiRangeGroup.classList.remove('hidden');
     title = "Complete Sabqi";
-    subtitle = "Recent revision check";
+    subtitle = `Recent revision: ${getSabqiRange(goal, state)}`;
     
     let nextSabaq = goal ? goal.startPage : 1;
     if (goal) {
@@ -2404,7 +2907,7 @@ function openLogEditorModal(dateStr, statsContainer = null) {
     const sabaqSkip = !isMissed && document.getElementById('log-editor-sabaq-skip').checked;
     let sabaqVal = document.getElementById('log-editor-sabaq-val').value.trim();
     if (sabaqComp && !sabaqVal) {
-      sabaqVal = `Para ${goal ? goal.para : 1} · Page 9`;
+      sabaqVal = `Para ${goal ? goal.para : 1} Â· Page 9`;
     }
 
     const sabqiComp = !isMissed && document.getElementById('log-editor-sabqi-comp').checked;
@@ -2488,6 +2991,8 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
 
   const startInput = document.getElementById('edit-goal-start');
   const endInput = document.getElementById('edit-goal-end');
+  if (startInput) startInput.step = 'any';
+  if (endInput) endInput.step = 'any';
   const paceInput = document.getElementById('edit-goal-pace');
   const daysInput = document.getElementById('edit-goal-days');
   const startDateInput = document.getElementById('edit-goal-start-date');
@@ -2551,14 +3056,14 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     const curPara = parseInt(select.value, 10);
     const standard = STANDARD_PARA_PAGES[curPara];
     if (useStandardBtn && standard) {
-      useStandardBtn.innerText = `Use Standard Range (${standard.start}–${standard.end})`;
+      useStandardBtn.innerText = `Use Standard Range (${standard.start}â€“${standard.end})`;
     }
   };
 
   const updateCalculations = () => {
-    const start = parseInt(startInput.value, 10) || 1;
-    const end = parseInt(endInput.value, 10) || start;
-    const pages = Math.max(1, end - start + 1);
+    const start = parseFloat(startInput.value) || 1;
+    const end = parseFloat(endInput.value) || start;
+    const pages = Math.max(0.5, Math.round((end - start + 1) * 10) / 10);
     const startDate = startDateInput.value || todayStr;
 
     const pacePreview = document.getElementById('goal-pace-calc-preview');
@@ -2569,7 +3074,7 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     const studyDaysPace = Math.ceil(pages / paceVal);
     const projDatePace = calculateProjectedEndDate(startDate, studyDaysPace);
     if (pacePreview) {
-      pacePreview.innerHTML = `⚡ <strong>${pages} pages</strong> at <strong>${paceVal} p/d</strong> = <strong>${studyDaysPace} days</strong>. Projected finish: <strong>${projDatePace}</strong>`;
+      pacePreview.innerHTML = `âš¡ <strong>${pages} pages</strong> at <strong>${paceVal} p/d</strong> = <strong>${studyDaysPace} days</strong>. Projected finish: <strong>${projDatePace}</strong>`;
     }
 
     // Duration mode calc
@@ -2577,7 +3082,7 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     const reqPaceDur = (pages / durDays).toFixed(2);
     const projDateDur = calculateProjectedEndDate(startDate, durDays);
     if (durationPreview) {
-      durationPreview.innerHTML = `⚡ <strong>${pages} pages</strong> in <strong>${durDays} days</strong> requires <strong>~${reqPaceDur} pages/day</strong>. Projected finish: <strong>${projDateDur}</strong>`;
+      durationPreview.innerHTML = `âš¡ <strong>${pages} pages</strong> in <strong>${durDays} days</strong> requires <strong>~${reqPaceDur} pages/day</strong>. Projected finish: <strong>${projDateDur}</strong>`;
     }
   };
 
@@ -2653,15 +3158,15 @@ function bindGlobalModals() {
   document.getElementById('page-range-form').onsubmit = (e) => {
     e.preventDefault();
     const id = document.getElementById('range-goal-id').value;
-    const start = parseInt(document.getElementById('range-start-page').value, 10);
-    const end = parseInt(document.getElementById('range-end-page').value, 10);
-    const override = parseInt(document.getElementById('range-target-override').value, 10);
+    const start = parseFloat(document.getElementById('range-start-page').value);
+    const end = parseFloat(document.getElementById('range-end-page').value);
+    const override = parseFloat(document.getElementById('range-target-override').value);
 
     if (end < start) {
       showToast("End page must be >= start page.", "error");
       return;
     }
-    const target = isNaN(override) ? (end - start + 1) : override;
+    const target = isNaN(override) ? Math.max(0.5, Math.round((end - start + 1) * 10) / 10) : override;
     db.updateMonthlyGoal(id, { startPage: start, endPage: end, targetPages: target });
     hideModal(document.getElementById('page-range-modal'));
     showToast("Range saved.", "success");
@@ -2702,42 +3207,31 @@ function bindGlobalModals() {
     rec.missed = false;
     rec.missedReason = null;
 
+    const targetGoal = db.getState().monthlyGoals.find(g => g.status === "active") || db.getState().monthlyGoals.find(g => g.id === rec.monthlyGoalId) || db.getState().monthlyGoals[0];
+    const paraNum = targetGoal ? targetGoal.para : 1;
+
     if (taskType === 'sabaq') {
-      const s = parseInt(document.getElementById('checkin-sabaq-start').value, 10);
-      const end = parseInt(document.getElementById('checkin-sabaq-end').value, 10);
-      
-      const targetGoal = db.getState().monthlyGoals.find(g => g.id === rec.monthlyGoalId);
-      const paraNum = targetGoal ? targetGoal.para : 1;
+      const s = parseFloat(document.getElementById('checkin-sabaq-start').value);
+      const end = parseFloat(document.getElementById('checkin-sabaq-end').value);
+      const portionMode = document.querySelector('input[name="checkin-sabaq-portion-mode"]:checked')?.value || 'half1';
 
-      if (!isNaN(s) && !isNaN(end) && end >= s) {
-        // Read old completed pages if any was logged today already
-        const oldPages = (rec.sabaqCompleted && rec.sabaq) ? [...rec.sabaq.matchAll(/\d+/g)].map(m => parseInt(m[0], 10)) : [];
-        const newPages = [];
+      if (portionMode === 'half1' && !isNaN(s)) {
+        togglePagePortion(db.state, s, 1);
+        rec.sabaq = `Para ${paraNum} Â· Page ${s} (1st Half Â· 0.5 p)`;
+      } else if (portionMode === 'half2' && !isNaN(s)) {
+        togglePagePortion(db.state, s, 2);
+        rec.sabaq = `Para ${paraNum} Â· Page ${s} (2nd Half Â· 0.5 p)`;
+      } else if (!isNaN(s) && !isNaN(end) && end >= s) {
         for (let p = s; p <= end; p++) {
-          newPages.push(p);
-        }
-        const combinedPages = Array.from(new Set([...oldPages, ...newPages])).sort((a,b) => a - b);
-
-        if (combinedPages.length === 1) {
-          rec.sabaq = `Para ${paraNum} · Page ${combinedPages[0]}`;
-        } else {
-          rec.sabaq = `Para ${paraNum} · Pages ${combinedPages[0]}–${combinedPages[combinedPages.length - 1]}`;
-        }
-        
-        combinedPages.forEach(p => {
           if (!db.state.completedPages.includes(p)) {
             db.state.completedPages.push(p);
           }
-        });
+        }
         db.state.completedPages.sort((a, b) => a - b);
-      } else {
-        const pageMatch = (rec.sabaq || "").match(/Page\s+(\d+)/);
-        if (pageMatch) {
-          const pageNum = parseInt(pageMatch[1], 10);
-          if (!db.state.completedPages.includes(pageNum)) {
-            db.state.completedPages.push(pageNum);
-            db.state.completedPages.sort((a,b) => a - b);
-          }
+        if (s === end) {
+          rec.sabaq = `Para ${paraNum} Â· Page ${s} (Full Page Â· 1.0 p)`;
+        } else {
+          rec.sabaq = `Para ${paraNum} Â· Pages ${s}â€“${end}`;
         }
       }
       rec.sabaqCompleted = true;
@@ -2748,7 +3242,11 @@ function bindGlobalModals() {
       rec.sabqiConfidence = confidence;
       const s = parseInt(document.getElementById('checkin-sabqi-start').value, 10);
       const end = parseInt(document.getElementById('checkin-sabqi-end').value, 10);
-      if (!isNaN(s) && !isNaN(end)) rec.sabqi = `Pages ${s}–${end}`;
+      if (!isNaN(s) && !isNaN(end)) {
+        rec.sabqi = `Pages ${s}â€“${end}`;
+      } else {
+        rec.sabqi = getSabqiRange(targetGoal, db.state);
+      }
     } else if (taskType === 'manzil') {
       rec.manzilCompleted = true;
     }
@@ -2756,8 +3254,8 @@ function bindGlobalModals() {
     db.saveDailyRecord(dateStr, rec);
     updateStreaksDisplay();
 
-    // Check month completion
-    const goal = db.state.monthlyGoals.find(g => g.id === rec.monthlyGoalId);
+    // Check project completion
+    const goal = targetGoal;
     if (goal && goal.startPage && goal.endPage) {
       let complete = true;
       for (let p = goal.startPage; p <= goal.endPage; p++) {
@@ -2821,8 +3319,8 @@ function bindGlobalModals() {
     e.preventDefault();
     const id = document.getElementById('edit-goal-id').value;
     const para = parseInt(document.getElementById('edit-goal-para').value, 10);
-    const start = parseInt(document.getElementById('edit-goal-start').value, 10);
-    const end = parseInt(document.getElementById('edit-goal-end').value, 10);
+    const start = parseFloat(document.getElementById('edit-goal-start').value);
+    const end = parseFloat(document.getElementById('edit-goal-end').value);
     const startDate = document.getElementById('edit-goal-start-date').value || new Date().toISOString().split('T')[0];
     const status = document.getElementById('edit-goal-status').value;
     const isPaceMode = document.getElementById('mode-pace').checked;
@@ -2832,7 +3330,7 @@ function bindGlobalModals() {
       return;
     }
 
-    const targetPages = end - start + 1;
+    const targetPages = Math.max(0.5, Math.round((end - start + 1) * 10) / 10); // supports 0.5 steps
     let targetPace = 0.5;
     let targetDays = 40;
     let targetEndDate = "";
@@ -2893,6 +3391,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // B. Bind Global Modals immediately
   bindGlobalModals();
+
+  // Auto-connect cloud sync if config was previously saved
+  if (typeof tryAutoConnect !== "undefined") {
+    tryAutoConnect().then(result => {
+      if (result.ok) console.log("[Sync] Auto-connected to Firebase.");
+    }).catch(() => {});
+  }
 
   // C. Setup header quick controls
   setupHeaderQuickControls();

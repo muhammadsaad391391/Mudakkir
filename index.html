@@ -13,6 +13,13 @@
   <!-- App Stylesheet -->
   <link rel="stylesheet" href="styles.css">
   
+  <!-- Firebase SDK (compat — works with file:// protocol) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- Cloud Sync Module -->
+  <script src="sync.js" defer></script>
+
   <!-- App Entry Script (Standard deferred script to prevent CORS errors on file:// protocol) -->
   <script src="app.js" defer></script>
 </head>
@@ -182,7 +189,7 @@
         <h3 id="range-modal-title">Configure Page Range</h3>
         <button class="close-modal-btn" id="close-range-modal-btn">&times;</button>
       </div>
-      <form id="page-range-form" class="modal-form">
+      <form id="page-range-form" class="modal-form" novalidate>
         <input type="hidden" id="range-goal-id">
         <div class="form-group">
           <label>Para Number</label>
@@ -191,16 +198,16 @@
         <div class="form-row">
           <div class="form-group">
             <label for="range-start-page">Starting Page (1-611)</label>
-            <input type="number" id="range-start-page" min="1" max="611" required class="form-input">
+            <input type="number" id="range-start-page" min="1" max="611" step="any" required class="form-input">
           </div>
           <div class="form-group">
             <label for="range-end-page">Ending Page (1-611)</label>
-            <input type="number" id="range-end-page" min="1" max="611" required class="form-input">
+            <input type="number" id="range-end-page" min="1" max="611" step="any" required class="form-input">
           </div>
         </div>
         <div class="form-group">
           <label for="range-target-override">Target Page Count (Optional Override)</label>
-          <input type="number" id="range-target-override" min="1" max="611" class="form-input" placeholder="Auto-calculated">
+          <input type="number" id="range-target-override" min="0.1" max="611" step="any" class="form-input" placeholder="Auto-calculated">
         </div>
         <div class="suggestion-box">
           <span class="suggestion-label">Standard Mushaf Range:</span>
@@ -221,7 +228,7 @@
         <h3 id="checkin-modal-title">Daily Task Completion</h3>
         <button class="close-modal-btn" id="close-checkin-modal-btn">&times;</button>
       </div>
-      <form id="checkin-form" class="modal-form">
+      <form id="checkin-form" class="modal-form" novalidate>
         <input type="hidden" id="checkin-date">
         <input type="hidden" id="checkin-task-type"> <!-- sabaq, sabqi, manzil -->
         
@@ -251,15 +258,29 @@
         </div>
 
         <div class="form-group hidden" id="checkin-sabaq-range-group">
-          <label>Sabaq Pages Completed</label>
+          <label>Sabaq Portion Completed</label>
+          <div class="flex gap-2" style="margin-bottom: 10px; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; background: var(--bg-color); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+              <input type="radio" name="checkin-sabaq-portion-mode" id="sabaq-portion-half1" value="half1" checked>
+              <span>1st Half (0.5 page)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; background: var(--bg-color); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+              <input type="radio" name="checkin-sabaq-portion-mode" id="sabaq-portion-half2" value="half2">
+              <span>2nd Half (0.5 page)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; background: var(--bg-color); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+              <input type="radio" name="checkin-sabaq-portion-mode" id="sabaq-portion-full" value="full">
+              <span>Full Page (1.0 page)</span>
+            </label>
+          </div>
           <div class="form-row">
             <div>
-              <label for="checkin-sabaq-start" class="sub-label">Start Page</label>
-              <input type="number" id="checkin-sabaq-start" min="1" max="611" class="form-input">
+              <label for="checkin-sabaq-start" class="sub-label">Target Page</label>
+              <input type="number" id="checkin-sabaq-start" min="1" max="611" step="any" class="form-input">
             </div>
             <div>
-              <label for="checkin-sabaq-end" class="sub-label">End Page</label>
-              <input type="number" id="checkin-sabaq-end" min="1" max="611" class="form-input">
+              <label for="checkin-sabaq-end" class="sub-label">End Page (for multi-page)</label>
+              <input type="number" id="checkin-sabaq-end" min="1" max="611" step="any" class="form-input">
             </div>
           </div>
         </div>
@@ -269,11 +290,11 @@
           <div class="form-row">
             <div>
               <label for="checkin-sabqi-start" class="sub-label">Start Page</label>
-              <input type="number" id="checkin-sabqi-start" min="1" max="611" class="form-input">
+              <input type="number" id="checkin-sabqi-start" min="1" max="611" step="any" class="form-input">
             </div>
             <div>
               <label for="checkin-sabqi-end" class="sub-label">End Page</label>
-              <input type="number" id="checkin-sabqi-end" min="1" max="611" class="form-input">
+              <input type="number" id="checkin-sabqi-end" min="1" max="611" step="any" class="form-input">
             </div>
           </div>
         </div>
@@ -358,7 +379,7 @@
         <h3 id="edit-goal-modal-title">Create / Edit Project</h3>
         <button class="close-modal-btn" id="close-roadmap-edit-btn">&times;</button>
       </div>
-      <form id="roadmap-edit-form" class="modal-form">
+      <form id="roadmap-edit-form" class="modal-form" novalidate>
         <input type="hidden" id="edit-goal-id">
         <div class="form-group">
           <label for="edit-goal-para">Target Para (1–30)</label>
@@ -368,12 +389,12 @@
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label for="edit-goal-start">Start Page</label>
-            <input type="number" id="edit-goal-start" min="1" max="611" class="form-input" required>
+            <label for="edit-goal-start">Start Page (e.g. 46 or 46.5)</label>
+            <input type="number" id="edit-goal-start" min="1" max="611" step="any" class="form-input" required>
           </div>
           <div class="form-group">
             <label for="edit-goal-end">End Page</label>
-            <input type="number" id="edit-goal-end" min="1" max="611" class="form-input" required>
+            <input type="number" id="edit-goal-end" min="1" max="611" step="any" class="form-input" required>
           </div>
         </div>
         <div class="suggestion-box" style="margin-bottom: 16px;">
@@ -397,7 +418,7 @@
           <!-- Pace Input Group -->
           <div id="goal-pace-group">
             <div class="flex align-center gap-2">
-              <input type="number" id="edit-goal-pace" min="0.1" max="10" step="0.1" value="0.5" class="form-input" style="max-width: 130px;">
+              <input type="number" id="edit-goal-pace" min="0.1" max="10" step="any" value="0.5" class="form-input" style="max-width: 130px;">
               <span style="font-size: 0.85rem; color: var(--text-muted);">pages / day</span>
             </div>
             <div id="goal-pace-calc-preview" style="font-size: 0.8rem; color: var(--secondary-color); margin-top: 6px; font-weight: 500;">
