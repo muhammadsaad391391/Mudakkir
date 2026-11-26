@@ -1,5 +1,5 @@
 ﻿/* ==========================================================================
-   Muddakir â€” Unified Single-File Application Logic
+   Muddakir — Unified Single-File Application Logic
    ========================================================================== */
 
 // 1. DATA CONSTANTS & METADATA (Updated to exact page ranges & Para names)
@@ -383,21 +383,21 @@ function getSabqiRange(activeGoal, state) {
     const prevRange = STANDARD_PARA_PAGES[prevPara];
     if (prevRange) {
       const startSabqi = Math.max(prevRange.start, prevRange.end - 9);
-      return `Para ${prevPara} Â· Pages ${startSabqi}â€“${prevRange.end}`;
+      return `Para ${prevPara} · Pages ${startSabqi}–${prevRange.end}`;
     }
-    return "Para 2 Â· Pages 33â€“42";
+    return "Para 2 · Pages 33–42";
   }
 
   const startP = activeGoal.startPage;
   if (completedInGoal.length > 0 && !partialLastPage) {
     const endP = completedInGoal[completedInGoal.length - 1];
-    return startP === endP ? `Para ${activeGoal.para} Â· Page ${startP}` : `Para ${activeGoal.para} Â· Pages ${startP}â€“${endP}`;
+    return startP === endP ? `Para ${activeGoal.para} · Page ${startP}` : `Para ${activeGoal.para} · Pages ${startP}–${endP}`;
   } else if (completedInGoal.length > 0 && partialLastPage) {
     const endP = completedInGoal[completedInGoal.length - 1];
-    return `Para ${activeGoal.para} Â· Pages ${startP}â€“${endP} (+ P. ${partialLastPage} 1st half)`;
+    return `Para ${activeGoal.para} · Pages ${startP}–${endP} (+ P. ${partialLastPage} 1st half)`;
   } else {
     const prevPara = activeGoal.para > 1 ? activeGoal.para - 1 : 30;
-    return `Para ${activeGoal.para} Â· Page ${partialLastPage} (1st half) + Para ${prevPara} (last 5 p.)`;
+    return `Para ${activeGoal.para} · Page ${partialLastPage} (1st half) + Para ${prevPara} (last 5 p.)`;
   }
 }
 
@@ -509,7 +509,7 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
   const daysNeededFromToday = requiredPace > 0 ? Math.ceil(result.remainingPages / requiredPace) : 0;
   result.daysNeededFromToday = daysNeededFromToday;
   result.adjustedCompletionDate = result.remainingPages <= 0 
-    ? "Completed! ðŸŽ‰" 
+    ? "Completed! 🎉" 
     : calculateProjectedEndDate(currentDateStr, Math.max(1, daysNeededFromToday));
 
   result.pagesAhead = parseFloat(progressDifference.toFixed(2));
@@ -517,16 +517,16 @@ function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDate
 
   if (result.goalComplete) {
     result.bufferState = 'AHEAD';
-    result.bufferText = `ðŸŽ‰ PROJECT COMPLETE! You have finished Para ${goal.para}.`;
+    result.bufferText = `🎉 PROJECT COMPLETE! You have finished Para ${goal.para}.`;
   } else if (result.progressDifference >= 0.5) {
     result.bufferState = 'AHEAD';
-    result.bufferText = `ðŸŸ¢ ${Math.abs(result.progressBuffer).toFixed(1)} DAYS AHEAD (+${result.pagesAhead.toFixed(1)} p. in advance). Target pace: ${requiredPace.toFixed(2)} p/d.`;
+    result.bufferText = `🟢 ${Math.abs(result.progressBuffer).toFixed(1)} DAYS AHEAD (+${result.pagesAhead.toFixed(1)} p. in advance). Target pace: ${requiredPace.toFixed(2)} p/d.`;
   } else if (result.progressDifference <= -0.5) {
     result.bufferState = 'BEHIND';
-    result.bufferText = `ðŸ”´ ${Math.abs(result.progressBuffer).toFixed(1)} DAYS BEHIND. Required pace: ${requiredPace.toFixed(2)} p/d.`;
+    result.bufferText = `🔴 ${Math.abs(result.progressBuffer).toFixed(1)} DAYS BEHIND. Required pace: ${requiredPace.toFixed(2)} p/d.`;
   } else {
     result.bufferState = 'ON TRACK';
-    result.bufferText = `ðŸŸ¢ ON TRACK. Target pace: ${requiredPace.toFixed(2)} pages/day.`;
+    result.bufferText = `🟢 ON TRACK. Target pace: ${requiredPace.toFixed(2)} pages/day.`;
   }
 
   result.currentPace = hifzDaysPassed > 0 ? parseFloat((completedCount / hifzDaysPassed).toFixed(2)) : 0;
@@ -711,11 +711,11 @@ function renderDashboard(container) {
   }
 
   // Calculate Sabaq text (with 0.5 portion precision)
-  let todaySabaqText = "Para Complete! ðŸŽ‰";
+  let todaySabaqText = "Para Complete! 🎉";
   let nextPortion = null;
   if (activeGoal && metrics && metrics.configured) {
     if (metrics.goalComplete) {
-      todaySabaqText = "Para Complete! ðŸŽ‰";
+      todaySabaqText = "Para Complete! 🎉";
     } else {
       nextPortion = getNextSabaqPortion(activeGoal, state);
       if ((todayRecord.sabaqCompleted || todayRecord.sabaqSkipped) && todayRecord.sabaq) {
@@ -725,7 +725,7 @@ function renderDashboard(container) {
           todaySabaqText = nextPortion.text;
           todayRecord.sabaq = todaySabaqText;
         } else {
-          todaySabaqText = "Para Complete! ðŸŽ‰";
+          todaySabaqText = "Para Complete! 🎉";
         }
       }
     }
@@ -750,7 +750,7 @@ function renderDashboard(container) {
 
   // Next Day Preview (computed dynamically to reflect advance work)
   const tomorrowNextPortion = activeGoal ? getNextSabaqPortion(activeGoal, state) : null;
-  const tomorrowSabaqText = tomorrowNextPortion ? tomorrowNextPortion.text : "Para Complete! ðŸŽ‰";
+  const tomorrowSabaqText = tomorrowNextPortion ? tomorrowNextPortion.text : "Para Complete! 🎉";
   const tomorrowSabqiText = activeGoal ? getSabqiRange(activeGoal, state) : "Revision Mode";
 
   // Calculate Manzil text (rotates through all completed Paras: e.g. 1, 2, 30)
@@ -808,7 +808,7 @@ function renderDashboard(container) {
       <div class="card pattern-bg overall-progress-card" style="grid-column: 1 / -1;">
         <div class="flex justify-between align-center" style="margin-bottom: 16px;">
           <div class="flex align-center gap-2">
-            <span style="font-size: 1.25rem;">ðŸ“–</span>
+            <span style="font-size: 1.25rem;">📖</span>
             <h3 style="font-size: 1.1rem; color: var(--text-main); font-weight: 700; margin: 0;">Overall Hifz Progress</h3>
           </div>
           <span class="badge badge-active" style="background-color: var(--primary-color); color: #fff; font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; font-weight: 600;">
@@ -872,7 +872,7 @@ function renderDashboard(container) {
       <div class="card" style="background: linear-gradient(135deg, rgba(23, 107, 82, 0.12), rgba(212, 175, 55, 0.16)); border: 2px solid var(--secondary-color); padding: 20px; border-radius: var(--border-radius-md); margin-bottom: 20px;">
         <div class="flex justify-between align-center" style="flex-wrap: wrap; gap: 14px;">
           <div>
-            <div style="font-size: 1.2rem; font-weight: 800; color: var(--secondary-color); margin-bottom: 4px;">ðŸŽ‰ Mubarak! Para ${activeGoal.para} Completed!</div>
+            <div style="font-size: 1.2rem; font-weight: 800; color: var(--secondary-color); margin-bottom: 4px;">🎉 Mubarak! Para ${activeGoal.para} Completed!</div>
             <div style="font-size: 0.9rem; color: var(--text-main);">All ${metrics.targetPages} pages memorized. What would you like to memorize next?</div>
           </div>
           <button id="start-next-para-btn" class="btn btn-primary" data-next-para="${nextPara}" style="background-color: var(--secondary-color); color: #fff; font-weight: 700; padding: 10px 20px;">
@@ -887,7 +887,7 @@ function renderDashboard(container) {
   if (!activeGoal) {
     bodyHtml += `
       <div class="card text-center pattern-bg" style="padding: 44px 24px; border: 2px dashed var(--border-color); margin-bottom: 20px;">
-        <span style="font-size: 2.5rem; display: block; margin-bottom: 12px;">ðŸŽ¯</span>
+        <span style="font-size: 2.5rem; display: block; margin-bottom: 12px;">🎯</span>
         <h2 style="color: var(--primary-color); margin-bottom: 8px;">No Active Hifz Project</h2>
         <p style="color: var(--text-muted); max-width: 480px; margin: 0 auto 20px; font-size: 1rem; line-height: 1.5;">
           Choose any Para and set your speed (e.g. 0.5 pages/day) or target duration (e.g. 30 days) to begin. You can even start a project from past dates!
@@ -901,8 +901,8 @@ function renderDashboard(container) {
     const percentStr = metrics ? metrics.percentComplete.toFixed(0) : "0";
     const paceClass = metrics ? metrics.bufferState.toLowerCase() : "on track";
     const modeBadge = activeGoal.mode === 'duration' 
-      ? `â±ï¸ Duration Mode (${activeGoal.targetDays || 30} days)` 
-      : `ðŸŽ¯ Pace Mode (${activeGoal.targetPace || 0.5} p/d)`;
+      ? `⏱️ Duration Mode (${activeGoal.targetDays || 30} days)`
+      : `🎯 Pace Mode (${activeGoal.targetPace || 0.5} p/d)`;
 
     const isHalfPace = (activeGoal.targetPace && activeGoal.targetPace <= 0.75) || activeGoal.mode === 'pace';
     const viewMode = localStorage.getItem('mudakkir_checklist_view') || (isHalfPace ? 'half' : 'full');
@@ -964,9 +964,9 @@ function renderDashboard(container) {
               Para ${activeGoal.para} <span style="font-size: 1.25rem; font-weight: 500; opacity: 0.85;">(${STANDARD_PARA_PAGES[activeGoal.para]?.name || ''})</span>
             </h2>
             <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-brand); margin-top: 2px;">
-              Pages ${activeGoal.startPage}â€“${activeGoal.endPage} (${metrics.targetPages} pages)
-              Â· Started: <strong>${activeGoal.startDate || todayStr}</strong>
-              ${activeGoal.targetEndDate ? `Â· Projected Finish: <strong>${activeGoal.targetEndDate}</strong>` : ''}
+              Pages ${activeGoal.startPage}–${activeGoal.endPage} (${metrics.targetPages} pages)
+              · Started: <strong>${activeGoal.startDate || todayStr}</strong>
+              ${activeGoal.targetEndDate ? `· Projected Finish: <strong>${activeGoal.targetEndDate}</strong>` : ''}
             </div>
           </div>
           <div class="flex gap-2">
@@ -988,13 +988,13 @@ function renderDashboard(container) {
         <!-- Schedule & Completion Forecast Card (Live dynamic adjustments for advance work) -->
         <div class="forecast-card" style="background: var(--bg-color); border: 1.5px solid var(--border-color); border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
           <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
-            <span>ðŸ“… Completion Forecast & Schedule Stats</span>
+            <span>📅 Completion Forecast & Schedule Stats</span>
             <span class="badge ${metrics.pagesAhead >= 0.5 ? 'badge-active' : (metrics.pagesAhead <= -0.5 ? 'badge-missed' : 'badge-neutral')}" style="font-size: 0.75rem; padding: 2px 8px;">
               ${metrics.pagesAhead >= 0.5 
-                ? `âš¡ ${metrics.daysAhead.toFixed(1)} Days Ahead (+${metrics.pagesAhead.toFixed(1)} p. advance)` 
+                ? `⚡ ${metrics.daysAhead.toFixed(1)} Days Ahead (+${metrics.pagesAhead.toFixed(1)} p. advance)` 
                 : (metrics.pagesAhead <= -0.5 
-                    ? `ðŸ”´ ${Math.abs(metrics.daysAhead).toFixed(1)} Days Behind` 
-                    : `ðŸŸ¢ On Target Schedule`)}
+                    ? `🔴 ${Math.abs(metrics.daysAhead).toFixed(1)} Days Behind` 
+                    : `🟢 On Target Schedule`)}
             </span>
           </div>
 
@@ -1002,7 +1002,7 @@ function renderDashboard(container) {
             <div class="metric-tile" style="padding: 10px 12px;">
               <div class="metric-label" style="font-size: 0.7rem;">Target Finish</div>
               <div class="metric-val" style="font-size: 1.15rem; color: var(--text-main); font-family: var(--font-brand);">
-                ${metrics.targetCompletionDate || 'â€”'}
+                ${metrics.targetCompletionDate || '—'}
               </div>
               <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">
                 At target ${targetPace} p/d
@@ -1012,10 +1012,10 @@ function renderDashboard(container) {
             <div class="metric-tile" style="padding: 10px 12px; border-left: 3px solid var(--secondary-color);">
               <div class="metric-label" style="font-size: 0.7rem; color: var(--secondary-color);">Adjusted Finish</div>
               <div class="metric-val" style="font-size: 1.15rem; color: var(--secondary-color); font-family: var(--font-brand);">
-                ${metrics.adjustedCompletionDate || 'â€”'}
+                ${metrics.adjustedCompletionDate || '—'}
               </div>
               <div style="font-size: 0.72rem; font-weight: 600; color: ${metrics.daysAhead >= 0 ? 'var(--secondary-color)' : 'var(--color-missed)'}; margin-top: 2px;">
-                ${metrics.daysAhead >= 0 ? `âš¡ Pulls finish ${metrics.daysAhead.toFixed(1)}d earlier` : `Pushed ${Math.abs(metrics.daysAhead).toFixed(1)}d later`}
+                ${metrics.daysAhead >= 0 ? `⚡ Pulls finish ${metrics.daysAhead.toFixed(1)}d earlier` : `Pushed ${Math.abs(metrics.daysAhead).toFixed(1)}d later`}
               </div>
             </div>
 
@@ -1043,11 +1043,11 @@ function renderDashboard(container) {
           <!-- Dynamic Tomorrow Preview -->
           <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 0.8rem;">
             <div>
-              <span style="font-weight: 700; color: var(--primary-color);">ðŸŒ… Tomorrow's Sabaq:</span>
+              <span style="font-weight: 700; color: var(--primary-color);">🌅 Tomorrow's Sabaq:</span>
               <span style="color: var(--text-main); margin-left: 4px;"><strong>${tomorrowSabaqText}</strong></span>
             </div>
             <div>
-              <span style="font-weight: 700; color: var(--primary-color);">ðŸ”„ Tomorrow's Sabqi:</span>
+              <span style="font-weight: 700; color: var(--primary-color);">🔄 Tomorrow's Sabqi:</span>
               <span style="color: var(--text-main); margin-left: 4px;"><strong>${tomorrowSabqiText}</strong></span>
             </div>
           </div>
@@ -1116,7 +1116,7 @@ function renderDashboard(container) {
     <div class="card efficiency-card pattern-bg" style="border-left: 4px solid var(--secondary-color); background: linear-gradient(135deg, rgba(23, 107, 82, 0.04) 0%, rgba(212, 175, 55, 0.04) 100%); margin-bottom: 20px;">
       <div class="flex justify-between align-center" style="margin-bottom: 12px;">
         <div class="flex align-center gap-2">
-          <span style="font-size: 1.25rem;">âš¡</span>
+          <span style="font-size: 1.25rem;">⚡</span>
           <h3 style="font-size: 1rem; color: var(--text-main); font-weight: 700; margin: 0;">Memorization Efficiency</h3>
         </div>
         <span class="badge badge-active" style="background-color: var(--secondary-color); color: #fff; font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; font-weight: 600;">
@@ -1153,12 +1153,12 @@ function renderDashboard(container) {
 
       <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-muted); flex-wrap: wrap; gap: 8px;">
         <span>
-          ðŸŽ¯ Target Pace: <strong style="color: var(--text-main);">${targetPace.toFixed(2)} p/d</strong>
+          🎯 Target Pace: <strong style="color: var(--text-main);">${targetPace.toFixed(2)} p/d</strong>
         </span>
         <span style="color: ${efficiencyPace >= targetPace ? 'var(--secondary-color)' : 'var(--color-missed)'}; font-weight: 600;">
           ${efficiencyPace >= targetPace 
-            ? `ðŸŸ¢ +${paceDiffPercent.toFixed(0)}% Above Target Pace` 
-            : `ðŸ”´ ${paceDiffPercent.toFixed(0)}% Below Target Pace`}
+            ? `🟢 +${paceDiffPercent.toFixed(0)}% Above Target Pace` 
+            : `🔴 ${paceDiffPercent.toFixed(0)}% Below Target Pace`}
         </span>
       </div>
     </div>
@@ -1185,10 +1185,10 @@ function renderDashboard(container) {
                   </div>
                   <div class="task-action">
                     ${todayRecord.sabaqCompleted 
-                      ? `<div class="task-completed-pill" data-task="sabaq">âœ“ Done</div>` 
+                      ? `<div class="task-completed-pill" data-task="sabaq">✓ Done</div>` 
                       : todayRecord.sabaqSkipped
                         ? `<div class="flex flex-column align-center gap-1">
-                             <div class="task-skipped-pill" style="background-color: rgba(240, 173, 78, 0.1); color: var(--color-partial); border: 1px solid var(--color-partial); padding: 4px 10px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; line-height: 1.2;">âš  Skipped</div>
+                             <div class="task-skipped-pill" style="background-color: rgba(240, 173, 78, 0.1); color: var(--color-partial); border: 1px solid var(--color-partial); padding: 4px 10px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; line-height: 1.2;">⚠️ Skipped</div>
                              <button class="btn btn-text btn-xs undo-sabaq-skip-btn" style="font-size: 0.7rem; padding: 2px; color: var(--text-muted);">Undo</button>
                            </div>`
                         : `<div class="flex gap-2">
@@ -1204,7 +1204,7 @@ function renderDashboard(container) {
                     if (nxtAdv && nxtAdv.page) {
                       return `
                         <div style="margin-top: 12px; border-top: 1px dashed var(--border-color); padding-top: 8px; font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 6px;">
-                          <span style="color: var(--text-muted);">âš¡ Finished early? Log next portion in advance: <strong>${nxtAdv.shortLabel}</strong></span>
+                          <span style="color: var(--text-muted);">⚡ Finished early? Log next portion in advance: <strong>${nxtAdv.shortLabel}</strong></span>
                           <button id="dashboard-advance-sabaq-btn" class="btn btn-outline btn-xs" style="color: var(--secondary-color); border-color: var(--secondary-color); font-size: 0.75rem; padding: 3px 8px;">+ Log 0.5p in Advance</button>
                         </div>
                       `;
@@ -1225,7 +1225,7 @@ function renderDashboard(container) {
                 </div>
                 <div class="task-action">
                   ${todayRecord.sabqiCompleted 
-                    ? `<div class="task-completed-pill" data-task="sabqi">âœ“ Done</div>` 
+                    ? `<div class="task-completed-pill" data-task="sabqi">✓ Done</div>` 
                     : `<button class="btn btn-secondary btn-xs checkin-btn" data-task="sabqi">Complete</button>`
                   }
                 </div>
@@ -1241,14 +1241,14 @@ function renderDashboard(container) {
                 </div>
                 <div class="task-action">
                   ${todayRecord.manzilCompleted 
-                    ? `<div class="task-completed-pill" data-task="manzil">âœ“ Done</div>` 
+                    ? `<div class="task-completed-pill" data-task="manzil">✓ Done</div>` 
                     : `<button class="btn btn-secondary btn-xs checkin-btn" data-task="manzil">Complete</button>`
                   }
                 </div>
               </div>
             </div>
 
-            ${metrics && metrics.goalComplete ? `<div class="day-banner day-banner-buffer">ðŸ”µ Buffer Day: Target complete! Use today for revision.</div>` : ''}
+            ${metrics && metrics.goalComplete ? `<div class="day-banner day-banner-buffer">🔵 Buffer Day: Target complete! Use today for revision.</div>` : ''}
             
             ${(!metrics || !metrics.goalComplete) && !todayRecord.sabaqCompleted && !todayRecord.sabqiCompleted && !todayRecord.manzilCompleted && !todayRecord.missed
               ? `<div class="day-controls-row"><button id="mark-day-missed-btn" class="btn btn-text btn-xs" style="color: var(--color-missed);">Mark Day Missed / Break</button></div>`
@@ -1257,7 +1257,7 @@ function renderDashboard(container) {
 
             ${todayRecord.missed
               ? `<div class="day-banner ${todayRecord.missedReason === 'break' ? 'day-banner-sunday' : 'day-banner-missed'}">
-                  <span>${todayRecord.missedReason === 'break' ? 'ðŸŸ¡ Skip / Break Day' : 'ðŸ”´ Missed'}: ${todayRecord.missedReason === 'break' ? 'Scheduled break' : todayRecord.missedReason.toUpperCase()}</span>
+                  <span>${todayRecord.missedReason === 'break' ? '🟡 Skip / Break Day' : '🔴 Missed'}: ${todayRecord.missedReason === 'break' ? 'Scheduled break' : todayRecord.missedReason.toUpperCase()}</span>
                   <button id="undo-missed-btn" class="btn btn-outline btn-xs" style="${todayRecord.missedReason === 'break' ? '' : 'border-color: var(--color-missed); color: var(--color-missed);'}">Undo</button>
                  </div>`
               : ''
@@ -1370,7 +1370,7 @@ function renderDashboard(container) {
       const wasDone = togglePagePortion(state, pageNum, halfNum);
       db.save();
       if (wasDone) {
-        showToast(`Page ${pageNum} (${halfNum === 1 ? '1st' : '2nd'} Half Â· 0.5p) marked completed! âœ“`, "success");
+        showToast(`Page ${pageNum} (${halfNum === 1 ? '1st' : '2nd'} Half · 0.5p) marked completed! ✓`, "success");
       } else {
         showToast(`Page ${pageNum} (${halfNum === 1 ? '1st' : '2nd'} Half) unticked.`, "info");
       }
@@ -1378,8 +1378,8 @@ function renderDashboard(container) {
     };
   });
 
-  // Project checklist full page cell click handlers
-  document.querySelectorAll('.project-page-cell').forEach(cell => {
+  // Project checklist full page cell click handlers (only for full-page mode cells)
+  document.querySelectorAll('.project-page-cell:not(.portion-cell)').forEach(cell => {
     cell.onclick = () => {
       const pageNum = parseInt(cell.dataset.page, 10);
       const idx = state.completedPages.indexOf(pageNum);
@@ -1397,7 +1397,7 @@ function renderDashboard(container) {
           state.completedPortions = state.completedPortions.filter(k => !k.startsWith(`${pageNum}_`));
         }
         db.save();
-        showToast(`Page ${pageNum} marked completed! âœ“`, "success");
+        showToast(`Page ${pageNum} marked completed! ✓`, "success");
       }
       renderDashboard(container);
     };
@@ -1427,10 +1427,10 @@ function renderDashboard(container) {
       if (nxt && nxt.page) {
         togglePagePortion(state, nxt.page, nxt.half);
         db.save();
-        showToast(`Page ${nxt.page} (${nxt.half === 1 ? '1st' : '2nd'} Half Â· 0.5p) completed! âš¡`, "success");
+        showToast(`Page ${nxt.page} (${nxt.half === 1 ? '1st' : '2nd'} Half · 0.5p) completed! ⚡`, "success");
         renderDashboard(container);
       } else {
-        showToast("All pages in this project are already completed! ðŸŽ‰", "info");
+        showToast("All pages in this project are already completed! 🎉", "info");
       }
     };
   }
@@ -1445,10 +1445,10 @@ function renderDashboard(container) {
         todayRecord.sabaqCompleted = true;
         todayRecord.sabaq = `${nxt.text} (Advance)`;
         db.saveDailyRecord(todayStr, todayRecord);
-        showToast(`âš¡ 0.5 Page logged in advance! Adjusted finish date pulled earlier and Sabqi updated!`, "success");
+        showToast(`⚡ 0.5 Page logged in advance! Adjusted finish date pulled earlier and Sabqi updated!`, "success");
         renderDashboard(container);
       } else {
-        showToast("Project already complete! ðŸŽ‰", "info");
+        showToast("Project already complete! 🎉", "info");
       }
     };
   }
@@ -1482,7 +1482,7 @@ function renderDashboard(container) {
           });
         }
         db.save();
-        showToast(`All pages in Para ${activeGoal.para} marked completed! ðŸŽ‰`, "success");
+        showToast(`All pages in Para ${activeGoal.para} marked completed! 🎉`, "success");
         renderDashboard(container);
       }
     };
@@ -1724,7 +1724,7 @@ function renderProjectHub(container) {
           </div>
           ${currentGoal ? renderGoalCardHtml(currentGoal, state.completedPages, state.dailyRecords, todayStr) : `
             <div class="text-center" style="padding: 36px 16px; border: 2px dashed var(--border-color); border-radius: 8px;">
-              <span style="font-size: 2.2rem; display: block; margin-bottom: 8px;">ðŸŽ¯</span>
+              <span style="font-size: 2.2rem; display: block; margin-bottom: 8px;">🎯</span>
               <h4 style="color: var(--text-main); margin-bottom: 6px;">No Active Project Running</h4>
               <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 420px; margin: 0 auto 16px;">
                 You haven't set an ongoing project yet. Start a project now for any Para, set your speed or duration, and pick a start date (even in past dates).
@@ -1759,7 +1759,7 @@ function renderProjectHub(container) {
                   return `
                     <tr style="border-bottom: 1px solid var(--border-color);">
                       <td style="padding: 12px 8px; font-weight: 600; color: var(--primary-color);">Para ${g.para} <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[g.para]?.name || ''})</span></td>
-                      <td style="padding: 12px 8px; font-family: var(--font-brand);">${g.startPage ? `${g.startPage}â€“${g.endPage}` : 'â€”'}</td>
+                      <td style="padding: 12px 8px; font-family: var(--font-brand);">${g.startPage ? `${g.startPage}–${g.endPage}` : '—'}</td>
                       <td style="padding: 12px 8px; font-size: 0.8rem; color: var(--text-muted);">${modeStr}</td>
                       <td style="padding: 12px 8px; font-family: var(--font-brand);">${m.completedPagesCount} / ${m.targetPages || 0}</td>
                       <td style="padding: 12px 8px;"><span class="badge badge-${g.status}">${g.status}</span></td>
@@ -1787,17 +1787,17 @@ function renderProjectHub(container) {
               <p style="color: var(--text-muted); font-size: 0.85rem; padding: 12px 0;">No upcoming projects queued. Click <strong>+ Add</strong> to queue up your next Para (e.g. Para 4).</p>
             ` : futureGoals.map(g => {
               const configured = g.startPage && g.endPage;
-              const rangeStr = configured ? `Pages ${g.startPage}â€“${g.endPage}` : 'Page range not configured';
+              const rangeStr = configured ? `Pages ${g.startPage}–${g.endPage}` : 'Page range not configured';
               const modeLabel = g.mode === 'duration' ? `Duration: ${g.targetDays || 30} days` : `Pace: ${g.targetPace || 0.5} p/d`;
               return `
                 <div class="roadmap-item" style="display: flex; flex-direction: column; gap: 8px;">
                   <div class="roadmap-month-info">
                     <span class="roadmap-month-target" style="font-size: 1rem; font-weight: 700;">Para ${g.para} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[g.para]?.name || ''})</span></span>
-                    <span class="roadmap-month-pages" style="color: ${configured ? 'var(--text-muted)' : 'var(--color-missed)'}">${rangeStr} Â· ${modeLabel}</span>
+                    <span class="roadmap-month-pages" style="color: ${configured ? 'var(--text-muted)' : 'var(--color-missed)'}">${rangeStr} · ${modeLabel}</span>
                     ${g.startDate ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">Start: ${g.startDate}</div>` : ''}
                   </div>
                   <div class="flex gap-2 justify-between align-center" style="margin-top: 4px;">
-                    <button class="btn btn-secondary btn-xs activate-project-btn" data-goal-id="${g.id}">â–¶ Activate</button>
+                    <button class="btn btn-secondary btn-xs activate-project-btn" data-goal-id="${g.id}">▶ Activate</button>
                     <div class="flex gap-1">
                       <button class="btn btn-outline btn-xs edit-roadmap-goal-btn" data-goal-id="${g.id}">Edit</button>
                       <button class="btn btn-text btn-xs delete-project-btn" data-goal-id="${g.id}" style="color: var(--color-missed); font-size: 0.75rem;">Delete</button>
@@ -1933,8 +1933,8 @@ function renderGoalCardHtml(goal, completedPages, dailyRecords, todayStr) {
         <h4 style="font-size: 1.25rem; color: var(--primary-color); font-weight: 700; margin-bottom: 2px;">
           Para ${goal.para} <span style="font-size: 0.95rem; font-weight: normal; color: var(--text-muted);">(${STANDARD_PARA_PAGES[goal.para]?.name || ''})</span>
         </h4>
-        <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-brand);">Range: Pages ${goal.startPage}â€“${goal.endPage} (${metrics.targetPages} p.) Â· ${modeBadge}</span>
-        ${goal.startDate ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Started: <strong>${goal.startDate}</strong> ${goal.targetEndDate ? `Â· Projected Finish: <strong>${goal.targetEndDate}</strong>` : ''}</div>` : ''}
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-brand);">Range: Pages ${goal.startPage}–${goal.endPage} (${metrics.targetPages} p.) · ${modeBadge}</span>
+        ${goal.startDate ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Started: <strong>${goal.startDate}</strong> ${goal.targetEndDate ? `· Projected Finish: <strong>${goal.targetEndDate}</strong>` : ''}</div>` : ''}
       </div>
       <div style="text-align: right;"><span class="badge badge-${goal.status}">${goal.status.toUpperCase()}</span></div>
     </div>
@@ -1978,7 +1978,7 @@ function calculateProjection(state, remainingPages) {
 
   return {
     juzCompleted,
-    projectedDate: remainingPages === 0 ? "Completed ðŸŽ‰" : projectedDateText,
+    projectedDate: remainingPages === 0 ? "Completed 🎉" : projectedDateText,
     onTrack: true,
     message
   };
@@ -2033,7 +2033,7 @@ function renderJuz(container) {
       }
       cell.innerHTML = `
         <div class="juz-num">${j}</div>
-        <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-brand); margin: 2px 0;">${range.start}â€“${range.end}</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-brand); margin: 2px 0;">${range.start}–${range.end}</div>
         <div class="juz-label">${compCount}/${totalPages} p.</div>
         <div class="juz-status-dot"></div>
       `;
@@ -2072,7 +2072,7 @@ function renderJuz(container) {
       <div class="juz-details-box" style="margin-bottom: 0;">
         <div class="flex justify-between align-center" style="margin-bottom: 16px;">
           <div>
-            <h3 style="color: var(--primary-color);">Juz ${juzNum} â€” ${STANDARD_PARA_PAGES[juzNum].name}</h3>
+            <h3 style="color: var(--primary-color);">Juz ${juzNum} — ${STANDARD_PARA_PAGES[juzNum].name}</h3>
             <span style="font-size: 0.8rem; color: var(--text-muted);">${JUZ_SURAHS[juzNum]}</span>
           </div>
           <span class="badge badge-${isCompleted ? 'completed' : 'active'}">${isCompleted ? 'Completed' : 'In Progress'}</span>
@@ -2080,7 +2080,7 @@ function renderJuz(container) {
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
           <div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">PAGE RANGE</div>
-            <div style="font-size: 1.1rem; font-weight: 600; font-family: var(--font-brand);">Pages ${range.start}â€“${range.end}</div>
+            <div style="font-size: 1.1rem; font-weight: 600; font-family: var(--font-brand);">Pages ${range.start}–${range.end}</div>
           </div>
           <div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">PROGRESS</div>
@@ -2245,17 +2245,17 @@ function renderStats(container) {
       
       let statusHtml = "";
       if (isSunday) {
-        statusHtml = `<span style="color: var(--text-muted); font-size: 0.8rem;">âšª Sunday Rest</span>`;
+        statusHtml = `<span style="color: var(--text-muted); font-size: 0.8rem;">⚪ Sunday Rest</span>`;
       } else if (rec.missed) {
         if (rec.missedReason === 'break') {
           statusHtml = `<span class="badge badge-partial" style="font-size: 0.75rem; text-decoration: none;">Planned Break / Skip</span>`;
         } else {
-          statusHtml = `<span class="badge badge-skipped" style="background-color: rgba(217,83,79,0.1); color: var(--color-missed); text-decoration: none; font-size: 0.75rem;">ðŸ”´ Missed: ${rec.missedReason || 'Other'}</span>`;
+          statusHtml = `<span class="badge badge-skipped" style="background-color: rgba(217,83,79,0.1); color: var(--color-missed); text-decoration: none; font-size: 0.75rem;">🔴 Missed: ${rec.missedReason || 'Other'}</span>`;
         }
       } else {
-        const sabaqDot = rec.sabaqCompleted ? 'ðŸŸ¢ Sabaq' : (rec.sabaqSkipped ? 'ðŸŸ¡ Sabaq' : 'âšª Sabaq');
-        const sabqiDot = rec.sabqiCompleted ? 'ðŸŸ¢ Sabqi' : 'âšª Sabqi';
-        const manzilDot = rec.manzilCompleted ? 'ðŸŸ¢ Manzil' : 'âšª Manzil';
+        const sabaqDot = rec.sabaqCompleted ? '🟢 Sabaq' : (rec.sabaqSkipped ? '🟡 Sabaq' : '⚪ Sabaq');
+        const sabqiDot = rec.sabqiCompleted ? '🟢 Sabqi' : '⚪ Sabqi';
+        const manzilDot = rec.manzilCompleted ? '🟢 Manzil' : '⚪ Manzil';
         
         statusHtml = `
           <div class="flex gap-2" style="font-size: 0.8rem; margin-top: 4px;">
@@ -2329,9 +2329,9 @@ function renderStats(container) {
               <div class="juz-detail-row"><span class="juz-detail-label">Fully Completed Days (All 3 Tasks)</span><span class="juz-detail-val" style="color: var(--color-complete); font-weight: 700;">${fullyCompletedCount} days</span></div>
               <div class="juz-detail-row"><span class="juz-detail-label">Incomplete Tracking Days</span><span class="juz-detail-val" style="color: var(--color-missed); font-weight: 700;">${incompleteDaysCount} days</span></div>
               <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
-                <div class="flex justify-between" style="margin-bottom: 4px;"><span>â€¢ Partially Completed:</span><span>${partiallyCompletedCount} d.</span></div>
-                <div class="flex justify-between" style="margin-bottom: 4px;"><span>â€¢ Skipped / Breaks:</span><span>${skippedBreaksCount} d.</span></div>
-                <div class="flex justify-between"><span>â€¢ Missed:</span><span>${missedDaysCount} d.</span></div>
+                <div class="flex justify-between" style="margin-bottom: 4px;"><span>• Partially Completed:</span><span>${partiallyCompletedCount} d.</span></div>
+                <div class="flex justify-between" style="margin-bottom: 4px;"><span>• Skipped / Breaks:</span><span>${skippedBreaksCount} d.</span></div>
+                <div class="flex justify-between"><span>• Missed:</span><span>${missedDaysCount} d.</span></div>
               </div>
             </div>
           </div>
@@ -2354,7 +2354,7 @@ function renderStats(container) {
                   <div class="weak-spot-item">
                     <div class="weak-spot-info">
                       <span class="weak-spot-pages">Page ${pageNum}</span>
-                      <span class="weak-spot-meta">Para ${representativeWS.para} Â· <span class="weak-spot-count">${pageStruggleCounts[pageNum]} struggles</span></span>
+                      <span class="weak-spot-meta">Para ${representativeWS.para} · <span class="weak-spot-count">${pageStruggleCounts[pageNum]} struggles</span></span>
                     </div>
                     <button class="btn btn-outline btn-xs resolve-ws-btn" data-page="${pageNum}">Resolve</button>
                   </div>
@@ -2369,7 +2369,7 @@ function renderStats(container) {
             <div class="diary-list">
               ${diaryEntries.map(e => `
                 <div class="diary-item">
-                  <div class="diary-header"><strong>${e.date}</strong><span>${'â˜…'.repeat(e.sessionQuality)}</span></div>
+                  <div class="diary-header"><strong>${e.date}</strong><span>${'★'.repeat(e.sessionQuality)}</span></div>
                   <div class="diary-body">"${e.notes || 'Checked in.'}"</div>
                 </div>
               `).join('')}
@@ -2740,7 +2740,7 @@ function openPageRangeModal(goalId) {
   document.getElementById('range-start-page').value = goal.startPage || standard.start;
   document.getElementById('range-end-page').value = goal.endPage || standard.end;
   document.getElementById('range-target-override').value = goal.targetPages || "";
-  document.getElementById('standard-range-display').innerText = `${standard.start}â€“${standard.end}`;
+  document.getElementById('standard-range-display').innerText = `${standard.start}–${standard.end}`;
   document.getElementById('page-range-modal').classList.remove('hidden');
 }
 
@@ -2907,7 +2907,7 @@ function openLogEditorModal(dateStr, statsContainer = null) {
     const sabaqSkip = !isMissed && document.getElementById('log-editor-sabaq-skip').checked;
     let sabaqVal = document.getElementById('log-editor-sabaq-val').value.trim();
     if (sabaqComp && !sabaqVal) {
-      sabaqVal = `Para ${goal ? goal.para : 1} Â· Page 9`;
+      sabaqVal = `Para ${goal ? goal.para : 1} · Page 9`;
     }
 
     const sabqiComp = !isMissed && document.getElementById('log-editor-sabqi-comp').checked;
@@ -3056,7 +3056,7 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     const curPara = parseInt(select.value, 10);
     const standard = STANDARD_PARA_PAGES[curPara];
     if (useStandardBtn && standard) {
-      useStandardBtn.innerText = `Use Standard Range (${standard.start}â€“${standard.end})`;
+      useStandardBtn.innerText = `Use Standard Range (${standard.start}–${standard.end})`;
     }
   };
 
@@ -3074,7 +3074,7 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     const studyDaysPace = Math.ceil(pages / paceVal);
     const projDatePace = calculateProjectedEndDate(startDate, studyDaysPace);
     if (pacePreview) {
-      pacePreview.innerHTML = `âš¡ <strong>${pages} pages</strong> at <strong>${paceVal} p/d</strong> = <strong>${studyDaysPace} days</strong>. Projected finish: <strong>${projDatePace}</strong>`;
+      pacePreview.innerHTML = `⚡ <strong>${pages} pages</strong> at <strong>${paceVal} p/d</strong> = <strong>${studyDaysPace} days</strong>. Projected finish: <strong>${projDatePace}</strong>`;
     }
 
     // Duration mode calc
@@ -3082,7 +3082,7 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
     const reqPaceDur = (pages / durDays).toFixed(2);
     const projDateDur = calculateProjectedEndDate(startDate, durDays);
     if (durationPreview) {
-      durationPreview.innerHTML = `âš¡ <strong>${pages} pages</strong> in <strong>${durDays} days</strong> requires <strong>~${reqPaceDur} pages/day</strong>. Projected finish: <strong>${projDateDur}</strong>`;
+      durationPreview.innerHTML = `⚡ <strong>${pages} pages</strong> in <strong>${durDays} days</strong> requires <strong>~${reqPaceDur} pages/day</strong>. Projected finish: <strong>${projDateDur}</strong>`;
     }
   };
 
@@ -3217,10 +3217,10 @@ function bindGlobalModals() {
 
       if (portionMode === 'half1' && !isNaN(s)) {
         togglePagePortion(db.state, s, 1);
-        rec.sabaq = `Para ${paraNum} Â· Page ${s} (1st Half Â· 0.5 p)`;
+        rec.sabaq = `Para ${paraNum} · Page ${s} (1st Half · 0.5 p)`;
       } else if (portionMode === 'half2' && !isNaN(s)) {
         togglePagePortion(db.state, s, 2);
-        rec.sabaq = `Para ${paraNum} Â· Page ${s} (2nd Half Â· 0.5 p)`;
+        rec.sabaq = `Para ${paraNum} · Page ${s} (2nd Half · 0.5 p)`;
       } else if (!isNaN(s) && !isNaN(end) && end >= s) {
         for (let p = s; p <= end; p++) {
           if (!db.state.completedPages.includes(p)) {
@@ -3229,9 +3229,9 @@ function bindGlobalModals() {
         }
         db.state.completedPages.sort((a, b) => a - b);
         if (s === end) {
-          rec.sabaq = `Para ${paraNum} Â· Page ${s} (Full Page Â· 1.0 p)`;
+          rec.sabaq = `Para ${paraNum} · Page ${s} (Full Page · 1.0 p)`;
         } else {
-          rec.sabaq = `Para ${paraNum} Â· Pages ${s}â€“${end}`;
+          rec.sabaq = `Para ${paraNum} · Pages ${s}–${end}`;
         }
       }
       rec.sabaqCompleted = true;
@@ -3243,7 +3243,7 @@ function bindGlobalModals() {
       const s = parseInt(document.getElementById('checkin-sabqi-start').value, 10);
       const end = parseInt(document.getElementById('checkin-sabqi-end').value, 10);
       if (!isNaN(s) && !isNaN(end)) {
-        rec.sabqi = `Pages ${s}â€“${end}`;
+        rec.sabqi = `Pages ${s}–${end}`;
       } else {
         rec.sabqi = getSabqiRange(targetGoal, db.state);
       }
