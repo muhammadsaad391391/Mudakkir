@@ -1014,8 +1014,8 @@ function renderDashboard(container) {
             </div>
           </div>
           <div class="flex gap-2">
-            <button id="dashboard-complex-goal-btn" class="btn btn-outline btn-xs" style="color: #fff; border-color: rgba(255,255,255,0.4);" data-goal-id="${activeGoal.id}">${activeGoal.isComplex ? '🧩 Custom Targets' : '⚡ Promote to Complex'}</button>
-            <button id="dashboard-edit-goal-btn" class="btn btn-outline btn-xs" style="color: #fff; border-color: rgba(255,255,255,0.4);" data-goal-id="${activeGoal.id}">Edit Project</button>
+            <button id="dashboard-complex-goal-btn" class="btn btn-sm" style="background: rgba(23, 107, 82, 0.12); color: var(--secondary-color); border: 1.5px solid var(--secondary-color); font-weight: 700; padding: 4px 10px; border-radius: 6px;" data-goal-id="${activeGoal.id}">${activeGoal.isComplex ? '🧩 Daily Targets Plan' : '⚡ Promote to Complex'}</button>
+            <button id="dashboard-edit-goal-btn" class="btn btn-outline btn-sm" style="color: var(--text-main); border-color: var(--border-color); font-weight: 600; padding: 4px 10px;" data-goal-id="${activeGoal.id}">Edit Project</button>
             <button id="dashboard-new-goal-btn" class="btn btn-primary btn-xs" style="background: var(--secondary-color); color: #fff;">+ New Project</button>
           </div>
         </div>
@@ -3050,6 +3050,20 @@ function openRoadmapEditModal(goalId = null, prefilledPara = null) {
   const daysInput = document.getElementById('edit-goal-days');
   const startDateInput = document.getElementById('edit-goal-start-date');
   const statusSelect = document.getElementById('edit-goal-status');
+  const promoteComplexBtn = document.getElementById('modal-promote-complex-btn');
+  if (promoteComplexBtn) {
+    promoteComplexBtn.onclick = () => {
+      // If goal exists, open for it; otherwise save temporary or use active goal
+      const currentGoalId = (goal && goal.id) || (db.getState().monthlyGoals.find(g => g.status === 'active')?.id);
+      if (currentGoalId) {
+        document.getElementById('roadmap-edit-modal').classList.add('hidden');
+        openComplexProjectModal(currentGoalId);
+      } else {
+        showToast('Please save the project first, then configure custom daily targets.', 'info');
+      }
+    };
+  }
+
   const deleteBtn = document.getElementById('delete-roadmap-goal-btn');
   const useStandardBtn = document.getElementById('edit-use-standard-btn');
 

@@ -18,10 +18,10 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
   <!-- Cloud Sync Module -->
-  <script src="sync.js" defer></script>
+  <script src="sync.js?v=2.1" defer></script>
 
   <!-- App Entry Script (Standard deferred script to prevent CORS errors on file:// protocol) -->
-  <script src="app.js" defer></script>
+  <script src="app.js?v=2.1" defer></script>
 </head>
 <body>
 
@@ -451,6 +451,14 @@
               <option value="completed">Completed Milestone</option>
             </select>
           </div>
+        </div>
+
+        <div style="background: rgba(23, 107, 82, 0.08); border: 1.5px dashed var(--secondary-color); border-radius: 8px; padding: 12px 14px; margin: 16px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <div style="font-weight: 700; font-size: 0.9rem; color: var(--primary-color);">🧩 Complex Project Mode</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Set custom targets for each day individually (e.g. 0.5, 1.0, 1.5, 0.66 p/d).</div>
+          </div>
+          <button type="button" id="modal-promote-complex-btn" class="btn btn-outline btn-sm" style="border-color: var(--secondary-color); color: var(--secondary-color); font-weight: 700;">⚡ Open Daily Target Planner</button>
         </div>
 
         <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
