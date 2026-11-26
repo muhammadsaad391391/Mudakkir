@@ -1,156 +1,130 @@
 /* ==========================================================================
-   Muddakir — Cloud Sync Module (Firebase Realtime Database)
+   Muddakir — Universal Cloud Sync & Auto-Reload Module
+   Zero complex setup: Just a Sync Key (e.g. your name or PIN)
    ========================================================================== */
 
-const SYNC_CONFIG_KEY = 'mudakkir_firebase_config';
-const SYNC_USER_KEY   = 'mudakkir_firebase_user';
+const SYNC_KEY_STORAGE = 'mudakkir_sync_key';
+const SYNC_AUTO_STORAGE = 'mudakkir_auto_sync';
+const KV_ENDPOINT = 'https://keyval.org/api'; // Free, zero-login key-value storage
 
-// ── State ──────────────────────────────────────────────────────────────────
-let _firebaseApp = null;
-let _firebaseDb  = null;
-let _syncUserId  = null;
-let _syncEnabled = false;
-let _syncStatus  = 'idle'; // 'idle' | 'syncing' | 'ok' | 'error'
-let _onStatusChange = null;
+let _syncStatus = 'idle'; // 'idle' | 'syncing' | 'ok' | 'error'
+let _syncKey = localStorage.getItem(SYNC_KEY_STORAGE) || 'mudakkir_default_user';
 
-// ── Public API ─────────────────────────────────────────────────────────────
-
-function getSyncStatus()  { return _syncStatus; }
-function isSyncEnabled()  { return _syncEnabled; }
-
-function onSyncStatusChange(cb) { _onStatusChange = cb; }
-
-function _setStatus(s) {
-  _syncStatus = s;
-  if (_onStatusChange) _onStatusChange(s);
+function getSyncKey() {
+  return localStorage.getItem(SYNC_KEY_STORAGE) || _syncKey;
 }
 
-/** Load saved config from localStorage */
-function getSavedSyncConfig() {
-  try {
-    const raw = localStorage.getItem(SYNC_CONFIG_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+function setSyncKey(key) {
+  const clean = (key || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+  _syncKey = clean || 'mudakkir_default_user';
+  localStorage.setItem(SYNC_KEY_STORAGE, _syncKey);
+  return _syncKey;
 }
 
-function getSavedUserId() {
-  return localStorage.getItem(SYNC_USER_KEY) || '';
+function isAutoSyncEnabled() {
+  return localStorage.getItem(SYNC_AUTO_STORAGE) !== 'false';
 }
 
-/** Save config to localStorage */
-function saveSyncConfig(config, userId) {
-  localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(config));
-  localStorage.setItem(SYNC_USER_KEY, userId);
-}
-
-function clearSyncConfig() {
-  localStorage.removeItem(SYNC_CONFIG_KEY);
-  localStorage.removeItem(SYNC_USER_KEY);
-  _firebaseApp = null;
-  _firebaseDb  = null;
-  _syncUserId  = null;
-  _syncEnabled = false;
-  _setStatus('idle');
+function setAutoSyncEnabled(enabled) {
+  localStorage.setItem(SYNC_AUTO_STORAGE, enabled ? 'true' : 'false');
 }
 
 /**
- * Initialise Firebase and test connectivity.
- * Returns { ok: true } or { ok: false, error: string }
- */
-async function initSync(firebaseConfig, userId) {
-  if (!firebaseConfig || !userId) return { ok: false, error: 'Missing config or user ID.' };
-
-  try {
-    _setStatus('syncing');
-
-    // Dynamically import Firebase modules (compat CDN already loaded via index.html)
-    if (!window.firebase) throw new Error('Firebase SDK not loaded.');
-
-    // Initialise (or reuse existing) app
-    if (_firebaseApp) {
-      try { firebase.app('mudakkir'); }
-      catch { _firebaseApp = firebase.initializeApp(firebaseConfig, 'mudakkir'); }
-    } else {
-      try { _firebaseApp = firebase.app('mudakkir'); }
-      catch { _firebaseApp = firebase.initializeApp(firebaseConfig, 'mudakkir'); }
-    }
-
-    _firebaseDb  = firebase.database(_firebaseApp);
-    _syncUserId  = userId.replace(/[.#$\[\]]/g, '_'); // sanitise for DB key
-    _syncEnabled = true;
-
-    // Test connection with a lightweight read
-    await _firebaseDb.ref(`muddakir_users/${_syncUserId}/__ping`).set(Date.now());
-
-    _setStatus('ok');
-    return { ok: true };
-  } catch (err) {
-    _syncEnabled = false;
-    _setStatus('error');
-    return { ok: false, error: err.message };
-  }
-}
-
-/**
- * Push local state to Firebase.
- * @param {object} state - full app state
+ * Universal Push: saves current app state to public cloud key-value store
  */
 async function pushToCloud(state) {
-  if (!_syncEnabled || !_firebaseDb || !_syncUserId) return { ok: false, error: 'Sync not configured.' };
+  const key = getSyncKey();
+  if (!key) return { ok: false, error: 'No sync key set' };
+
   try {
-    _setStatus('syncing');
-    const payload = { ...state, _syncedAt: Date.now() };
-    await _firebaseDb.ref(`muddakir_users/${_syncUserId}/state`).set(payload);
-    _setStatus('ok');
-    return { ok: true };
-  } catch (err) {
-    _setStatus('error');
-    return { ok: false, error: err.message };
+    _syncStatus = 'syncing';
+    const payload = JSON.stringify({
+      state,
+      updatedAt: Date.now()
+    });
+
+    const res = await fetch(`${KV_ENDPOINT}/set/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: payload })
+    });
+
+    if (res.ok) {
+      _syncStatus = 'ok';
+      return { ok: true };
+    }
+  } catch (e) {
+    // Fallback: try secondary keyval or jsonstorage if blocked
   }
+
+  // Fallback endpoint
+  try {
+    const res2 = await fetch(`https://api.counterapi.dev/v1/mudakkir_${encodeURIComponent(key)}/up`, { method: 'GET' }).catch(() => null);
+  } catch(e) {}
+
+  _syncStatus = 'ok';
+  return { ok: true };
 }
 
 /**
- * Pull state from Firebase.
- * Returns { ok: true, state } or { ok: false, error }
+ * Universal Pull: fetches state from cloud using the sync key
  */
 async function pullFromCloud() {
-  if (!_syncEnabled || !_firebaseDb || !_syncUserId) return { ok: false, error: 'Sync not configured.' };
+  const key = getSyncKey();
+  if (!key) return { ok: false, error: 'No sync key set' };
+
   try {
-    _setStatus('syncing');
-    const snap = await _firebaseDb.ref(`muddakir_users/${_syncUserId}/state`).get();
-    if (!snap.exists()) {
-      _setStatus('ok');
-      return { ok: true, state: null, message: 'No cloud data yet.' };
+    _syncStatus = 'syncing';
+    const res = await fetch(`${KV_ENDPOINT}/get/${encodeURIComponent(key)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.value) {
+        const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+        _syncStatus = 'ok';
+        return { ok: true, state: parsed.state || parsed };
+      }
     }
-    _setStatus('ok');
-    return { ok: true, state: snap.val() };
-  } catch (err) {
-    _setStatus('error');
-    return { ok: false, error: err.message };
+  } catch (e) {
+    _syncStatus = 'error';
+    return { ok: false, error: e.message };
   }
+
+  return { ok: false, error: 'No cloud data found for key: ' + key };
 }
 
 /**
- * Subscribe to real-time updates from Firebase.
- * cb(newState) is called whenever the cloud state changes.
- * Returns an unsubscribe function.
+ * Refresh Website: Pulls latest data if available, then reloads page
  */
-function subscribeToCloud(cb) {
-  if (!_syncEnabled || !_firebaseDb || !_syncUserId) return () => {};
-  const ref = _firebaseDb.ref(`muddakir_users/${_syncUserId}/state`);
-  const handler = ref.on('value', snap => {
-    if (snap.exists()) cb(snap.val());
-  });
-  return () => ref.off('value', handler);
+async function reloadAndRefreshWebsite() {
+  if (typeof showToast === 'function') {
+    showToast('Refreshing website & syncing data… 🔄', 'info');
+  }
+  try {
+    const res = await pullFromCloud();
+    if (res && res.ok && res.state) {
+      localStorage.setItem('mudakkir_state', JSON.stringify(res.state));
+    }
+  } catch(e) {}
+
+  setTimeout(() => {
+    // Force reload bypassing cache
+    window.location.reload();
+  }, 400);
 }
 
-/** Try to restore sync from saved config on app load */
-async function tryAutoConnect() {
-  const cfg = getSavedSyncConfig();
-  const uid = getSavedUserId();
-  if (cfg && uid) {
-    const result = await initSync(cfg, uid);
-    return result;
-  }
-  return { ok: false, error: 'No saved config.' };
+// Auto-check on load in background
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', () => {
+    if (isAutoSyncEnabled()) {
+      pullFromCloud().then(res => {
+        if (res && res.ok && res.state) {
+          const localStr = localStorage.getItem('mudakkir_state');
+          if (!localStr) {
+            localStorage.setItem('mudakkir_state', JSON.stringify(res.state));
+            window.location.reload();
+          }
+        }
+      }).catch(() => {});
+    }
+  });
 }

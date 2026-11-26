@@ -128,10 +128,10 @@ class StateManager {
     const stateToSave = customState || this.state;
     try {
       localStorage.setItem(this.storageKey, JSON.stringify(stateToSave));
-      // Auto-push to cloud if sync is enabled (debounced — fire and forget)
-      if (typeof isSyncEnabled !== "undefined" && isSyncEnabled() && typeof pushToCloud !== "undefined") {
+      // Auto-push to cloud for seamless multi-device sync
+      if (typeof pushToCloud === "function") {
         clearTimeout(window._syncDebounce);
-        window._syncDebounce = setTimeout(() => pushToCloud(stateToSave), 2000);
+        window._syncDebounce = setTimeout(() => pushToCloud(stateToSave), 1500);
       }
     } catch (e) {
       console.error("localStorage save error:", e);
@@ -2483,25 +2483,60 @@ function renderStats(container) {
 // E. SETTINGS VIEW
 function renderSettings(container) {
   const state = db.getState();
-  const syncCfg  = (typeof getSavedSyncConfig !== 'undefined') ? getSavedSyncConfig() : null;
-  const syncUser = (typeof getSavedUserId    !== 'undefined') ? getSavedUserId()     : '';
-  const syncOn   = (typeof isSyncEnabled    !== 'undefined') ? isSyncEnabled()      : false;
-  const syncSt   = (typeof getSyncStatus    !== 'undefined') ? getSyncStatus()      : 'idle';
-
-  const statusColor = { ok: '#16a34a', error: '#dc2626', syncing: '#d97706', idle: 'var(--text-muted)' }[syncSt] || 'var(--text-muted)';
-  const statusLabel = { ok: '✅ Connected', error: '❌ Error', syncing: '⏳ Syncing…', idle: '⚪ Not configured' }[syncSt] || '⚪ Not configured';
+  const currentKey = typeof getSyncKey === 'function' ? getSyncKey() : 'mudakkir_default_user';
 
   container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 24px;">
       <div class="card pattern-bg" style="padding: 20px;">
         <h2 style="color: var(--primary-color);">Settings</h2>
-        <p style="color: var(--text-muted); font-size: 0.85rem;">Wipe logs, configure themes, simulate dates, backup data, or set up cloud sync.</p>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">One-click website refresh, universal multi-device sync, themes, and backups.</p>
       </div>
 
       <div class="plan-container">
         <div class="dashboard-main-col">
+          <!-- 🔄 BIG ONE-CLICK REFRESH CARD -->
+          <div class="card" style="border: 2px solid var(--secondary-color); background: rgba(23, 107, 82, 0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+              <div>
+                <h3 style="color: var(--primary-color); margin: 0 0 4px; font-size: 1.15rem;">🔄 Refresh Website &amp; Sync</h3>
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">Reloads the app and synchronizes any updates between your laptop and phone immediately.</p>
+              </div>
+              <button id="simple-refresh-website-btn" class="btn btn-primary" style="padding: 10px 22px; font-size: 0.95rem; font-weight: 700; background: var(--secondary-color); color: #fff; box-shadow: 0 4px 12px rgba(23, 107, 82, 0.25);">
+                🔄 Refresh Now
+              </button>
+            </div>
+          </div>
+
+          <!-- 📱 LAPTOP & PHONE UNIVERSAL SYNC -->
           <div class="card">
-            <h3 style="color: var(--text-main); margin-bottom: 16px;">Schedule &amp; theme</h3>
+            <h3 style="color: var(--text-main); margin-bottom: 8px;">📱 Multi-Device Universal Sync</h3>
+            <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
+              No complex API keys or accounts required. Just enter the <strong>same Sync Name</strong> on your laptop and your phone, and your data stays in sync automatically.
+            </p>
+
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div class="form-group" style="margin: 0;">
+                <label style="font-size: 0.8rem; font-weight: 700;">Your Sync Name / Secret Word</label>
+                <div style="display: flex; gap: 8px; margin-top: 4px;">
+                  <input type="text" id="universal-sync-key-input" class="form-input" value="${currentKey}" placeholder="e.g. saad_hifz" style="font-weight: 700; font-size: 0.95rem; max-width: 260px;">
+                  <button type="button" id="universal-save-key-btn" class="btn btn-primary btn-sm">Save Sync Name</button>
+                </div>
+                <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; display: block;">
+                  💡 Tip: Use your name or any word (e.g. <code>saad_quran</code>). Enter the exact same word on your phone!
+                </span>
+              </div>
+
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;">
+                <button type="button" id="universal-push-btn" class="btn btn-outline btn-sm">⬆️ Send Laptop Data to Cloud</button>
+                <button type="button" id="universal-pull-btn" class="btn btn-outline btn-sm">⬇️ Receive Cloud Data</button>
+              </div>
+
+              <div id="universal-sync-status" style="font-size: 0.82rem; color: var(--secondary-color); font-weight: 600; margin-top: 4px;"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="color: var(--text-main); margin-bottom: 16px;">Schedule &amp; Theme</h3>
             <div class="settings-list">
               <div class="settings-group">
                 <label for="settings-rest-day">Weekly Rest Day</label>
@@ -2526,63 +2561,6 @@ function renderSettings(container) {
             <h3 style="color: var(--text-main); margin-bottom: 8px;">Simulated Date (Calculations Testing)</h3>
             <input type="text" id="settings-date-override" class="form-input" placeholder="e.g. 2026-09-11" value="${state.settings.systemDateOverride || ""}">
           </div>
-
-          <!-- ☁️ CLOUD SYNC CARD -->
-          <div class="card" style="border: 1.5px solid ${syncOn ? 'var(--secondary-color)' : 'var(--border-color)'};">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
-              <h3 style="color: var(--text-main); margin:0;">☁️ Cloud Sync</h3>
-              <span style="font-size:0.8rem; font-weight:700; color:${statusColor};">${statusLabel}</span>
-            </div>
-            <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px; line-height:1.5;">
-              Sync your data across devices using <strong>Firebase Realtime Database</strong> (free).
-              <a href="https://console.firebase.google.com/" target="_blank" style="color:var(--secondary-color);">Create a free project →</a>
-            </p>
-
-            <div style="display:flex; flex-direction:column; gap:10px;">
-              <div class="form-group" style="margin:0;">
-                <label style="font-size:0.8rem; font-weight:600;">Sync User ID <span style="color:var(--text-muted); font-weight:400;">(any unique name, e.g. "mudakkir_ahmad")</span></label>
-                <input type="text" id="sync-user-id" class="form-input" placeholder="e.g. mudakkir_ahmad" value="${syncUser}" style="font-size:0.85rem;">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label style="font-size:0.8rem; font-weight:600;">Firebase Database URL</label>
-                <input type="text" id="sync-db-url" class="form-input" placeholder="https://your-project-default-rtdb.firebaseio.com" value="${syncCfg ? syncCfg.databaseURL || '' : ''}" style="font-size:0.82rem;">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label style="font-size:0.8rem; font-weight:600;">Firebase API Key</label>
-                <input type="text" id="sync-api-key" class="form-input" placeholder="AIza..." value="${syncCfg ? syncCfg.apiKey || '' : ''}" style="font-size:0.82rem;">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label style="font-size:0.8rem; font-weight:600;">Firebase Project ID</label>
-                <input type="text" id="sync-project-id" class="form-input" placeholder="your-project-id" value="${syncCfg ? syncCfg.projectId || '' : ''}" style="font-size:0.82rem;">
-              </div>
-
-              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
-                <button id="sync-connect-btn" class="btn btn-primary" style="flex:1; min-width:120px;">
-                  ${syncOn ? '🔄 Re-connect' : '🔗 Connect & Enable'}
-                </button>
-                <button id="sync-refresh-btn" class="btn btn-outline" style="flex:1; min-width:120px;" ${!syncOn ? 'disabled' : ''}>
-                  ⬇️ Refresh from Cloud
-                </button>
-                <button id="sync-push-btn" class="btn btn-outline" style="flex:1; min-width:120px;" ${!syncOn ? 'disabled' : ''}>
-                  ⬆️ Push to Cloud
-                </button>
-              </div>
-              ${syncOn ? `<button id="sync-disconnect-btn" class="btn btn-text" style="font-size:0.78rem; color:var(--color-missed); align-self:flex-start; padding:0;">Disconnect &amp; remove config</button>` : ''}
-            </div>
-
-            <div id="sync-status-msg" style="margin-top:12px; font-size:0.82rem; color:var(--text-muted);"></div>
-
-            <details style="margin-top:14px;">
-              <summary style="font-size:0.8rem; color:var(--text-muted); cursor:pointer;">📖 How to get these values</summary>
-              <ol style="font-size:0.8rem; color:var(--text-muted); margin:8px 0 0 16px; line-height:1.7;">
-                <li>Go to <a href="https://console.firebase.google.com/" target="_blank" style="color:var(--secondary-color);">console.firebase.google.com</a></li>
-                <li>Create a new project (disable Google Analytics)</li>
-                <li>Go to <strong>Build → Realtime Database → Create database</strong> (start in test mode)</li>
-                <li>Go to <strong>Project Settings (⚙️) → Your apps → Add app → Web</strong></li>
-                <li>Copy the <code>apiKey</code>, <code>databaseURL</code>, and <code>projectId</code> from the config object</li>
-              </ol>
-            </details>
-          </div>
         </div>
 
         <div class="dashboard-side-col">
@@ -2606,7 +2584,56 @@ function renderSettings(container) {
     </div>
   `;
 
-  // ── Basic settings bindings ──────────────────────────────────────────────
+  // Bindings
+  document.getElementById('simple-refresh-website-btn').onclick = () => {
+    if (typeof reloadAndRefreshWebsite === 'function') {
+      reloadAndRefreshWebsite();
+    } else {
+      window.location.reload();
+    }
+  };
+
+  const syncStatusMsg = document.getElementById('universal-sync-status');
+  document.getElementById('universal-save-key-btn').onclick = () => {
+    const inputVal = document.getElementById('universal-sync-key-input').value.trim();
+    if (!inputVal) {
+      showToast('Please enter a sync name.', 'warning');
+      return;
+    }
+    const cleanKey = setSyncKey(inputVal);
+    showToast(`Sync name set to "${cleanKey}". Uploading current progress...`, 'success');
+    if (typeof pushToCloud === 'function') {
+      pushToCloud(db.getState()).then(() => {
+        syncStatusMsg.innerText = '✅ Saved & Synced to Cloud!';
+      });
+    }
+  };
+
+  document.getElementById('universal-push-btn').onclick = async () => {
+    syncStatusMsg.innerText = 'Uploading to cloud…';
+    if (typeof pushToCloud === 'function') {
+      await pushToCloud(db.getState());
+      syncStatusMsg.innerText = '✅ Sent to Cloud! Now tap "Receive" on your other device.';
+      showToast('Data uploaded to cloud!', 'success');
+    }
+  };
+
+  document.getElementById('universal-pull-btn').onclick = async () => {
+    syncStatusMsg.innerText = 'Fetching latest data from cloud…';
+    if (typeof pullFromCloud === 'function') {
+      const res = await pullFromCloud();
+      if (res && res.ok && res.state) {
+        localStorage.setItem('mudakkir_state', JSON.stringify(res.state));
+        syncStatusMsg.innerText = '✅ Cloud data loaded! Reloading…';
+        showToast('Sync successful! Refreshing…', 'success');
+        setTimeout(() => window.location.reload(), 600);
+      } else {
+        syncStatusMsg.innerText = '⚠️ ' + (res?.error || 'No cloud data found for this sync name.');
+        showToast('No cloud data found for this name.', 'warning');
+      }
+    }
+  };
+
   document.getElementById('settings-rest-day').onchange = (e) => {
     db.updateSettings({ weeklyRestDay: e.target.value });
     showToast("Rest day updated.", "success");
@@ -2667,90 +2694,7 @@ function renderSettings(container) {
       setTimeout(() => window.location.reload(), 1000);
     }
   };
-
-  // ── Cloud Sync bindings ──────────────────────────────────────────────────
-  if (typeof initSync === 'undefined') return; // sync.js not loaded yet
-
-  const syncMsg = document.getElementById('sync-status-msg');
-  const setSyncMsg = (msg, color = 'var(--text-muted)') => {
-    syncMsg.style.color = color;
-    syncMsg.textContent = msg;
-  };
-
-  document.getElementById('sync-connect-btn').onclick = async () => {
-    const userId  = document.getElementById('sync-user-id').value.trim();
-    const dbUrl   = document.getElementById('sync-db-url').value.trim();
-    const apiKey  = document.getElementById('sync-api-key').value.trim();
-    const projId  = document.getElementById('sync-project-id').value.trim();
-
-    if (!userId || !dbUrl || !apiKey || !projId) {
-      setSyncMsg('Please fill in all fields.', '#dc2626');
-      return;
-    }
-
-    const cfg = { apiKey, databaseURL: dbUrl, projectId: projId };
-    setSyncMsg('Connecting…');
-    const result = await initSync(cfg, userId);
-
-    if (result.ok) {
-      saveSyncConfig(cfg, userId);
-      setSyncMsg('Connected! Pushing current data…', '#16a34a');
-      await pushToCloud(db.getState());
-      setSyncMsg('✅ Synced! Refresh this page to see updated status.', '#16a34a');
-      showToast('Cloud sync enabled!', 'success');
-      // Re-render after short delay so status badge updates
-      setTimeout(() => renderSettings(container), 1200);
-    } else {
-      setSyncMsg('❌ ' + (result.error || 'Connection failed.'), '#dc2626');
-      showToast('Sync connection failed.', 'error');
-    }
-  };
-
-  const refreshBtn = document.getElementById('sync-refresh-btn');
-  if (refreshBtn) refreshBtn.onclick = async () => {
-    setSyncMsg('Pulling from cloud…');
-    const result = await pullFromCloud();
-    if (result.ok && result.state) {
-      if (confirm('Replace local data with cloud data? This will reload the app.')) {
-        try {
-          localStorage.setItem('mudakkir_state', JSON.stringify(result.state));
-          showToast('Data refreshed from cloud!', 'success');
-          setTimeout(() => window.location.reload(), 800);
-        } catch(e) {
-          setSyncMsg('❌ Could not apply cloud data: ' + e.message, '#dc2626');
-        }
-      } else {
-        setSyncMsg('Refresh cancelled.', 'var(--text-muted)');
-      }
-    } else if (result.ok && !result.state) {
-      setSyncMsg('No cloud data found yet. Push first from another device.', '#d97706');
-    } else {
-      setSyncMsg('❌ ' + (result.error || 'Pull failed.'), '#dc2626');
-    }
-  };
-
-  const pushBtn = document.getElementById('sync-push-btn');
-  if (pushBtn) pushBtn.onclick = async () => {
-    setSyncMsg('Pushing to cloud…');
-    const result = await pushToCloud(db.getState());
-    if (result.ok) {
-      setSyncMsg('✅ Data pushed to cloud successfully!', '#16a34a');
-      showToast('Pushed to cloud!', 'success');
-    } else {
-      setSyncMsg('❌ ' + (result.error || 'Push failed.'), '#dc2626');
-    }
-  };
-
-  const disconnectBtn = document.getElementById('sync-disconnect-btn');
-  if (disconnectBtn) disconnectBtn.onclick = () => {
-    if (confirm('Disconnect cloud sync? Your local data stays intact.')) {
-      clearSyncConfig();
-      showToast('Cloud sync disconnected.', 'success');
-      renderSettings(container);
-    }
-  };
 }
-
 
 // 5. GLOBAL ROUTER & BOOTSTRAP
 function initRouter() {
@@ -3738,6 +3682,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Setup header quick buttons
 function setupHeaderQuickControls() {
+  const refreshBtn = document.getElementById('refresh-website-header-btn');
+  if (refreshBtn) {
+    refreshBtn.onclick = () => {
+      if (typeof reloadAndRefreshWebsite === 'function') {
+        reloadAndRefreshWebsite();
+      } else {
+        window.location.reload();
+      }
+    };
+  }
+
   const themeToggle = document.getElementById('theme-toggle-header');
   if (themeToggle) {
     themeToggle.onclick = () => {
