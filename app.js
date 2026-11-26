@@ -366,39 +366,67 @@ function getNextSabaqPortion(activeGoal, state) {
 function getSabqiRange(activeGoal, state) {
   if (!activeGoal) return "Revision Mode";
   
-  let completedInGoal = [];
+  const paraNum = activeGoal.para;
+  const paraStd = STANDARD_PARA_PAGES[paraNum];
+  const scanStart = paraStd ? paraStd.start : Math.floor(activeGoal.startPage);
+  const scanEnd = Math.floor(activeGoal.endPage);
+
+  let completedPagesInPara = [];
   let partialLastPage = null;
-  for (let p = activeGoal.startPage; p <= activeGoal.endPage; p++) {
+
+  for (let p = scanStart; p <= scanEnd; p++) {
     const h1 = isPortionCompleted(state, p, 1);
     const h2 = isPortionCompleted(state, p, 2);
     if (h1 && h2) {
-      completedInGoal.push(p);
+      completedPagesInPara.push(p);
     } else if (h1) {
       partialLastPage = p;
     }
   }
 
-  if (completedInGoal.length === 0 && !partialLastPage) {
-    const prevPara = activeGoal.para > 1 ? activeGoal.para - 1 : 30;
+  // Case 1: No pages completed yet anywhere in this Para
+  if (completedPagesInPara.length === 0 && !partialLastPage) {
+    const prevPara = paraNum > 1 ? paraNum - 1 : 30;
     const prevRange = STANDARD_PARA_PAGES[prevPara];
     if (prevRange) {
+      // In Hifz tradition, when starting a new Para, Sabaqi is the last quarter/half (5-10 pages) of the previous Para
       const startSabqi = Math.max(prevRange.start, prevRange.end - 9);
-      return `Para ${prevPara} · Pages ${startSabqi}–${prevRange.end}`;
+      return `Para ${prevPara} · Pages ${startSabqi}–${prevRange.end} (Recent memorization)`;
     }
-    return "Para 2 · Pages 33–42";
+    return "Revision Mode";
   }
 
-  const startP = activeGoal.startPage;
-  if (completedInGoal.length > 0 && !partialLastPage) {
-    const endP = completedInGoal[completedInGoal.length - 1];
-    return startP === endP ? `Para ${activeGoal.para} · Page ${startP}` : `Para ${activeGoal.para} · Pages ${startP}–${endP}`;
-  } else if (completedInGoal.length > 0 && partialLastPage) {
-    const endP = completedInGoal[completedInGoal.length - 1];
-    return `Para ${activeGoal.para} · Pages ${startP}–${endP} (+ P. ${partialLastPage} 1st half)`;
-  } else {
-    const prevPara = activeGoal.para > 1 ? activeGoal.para - 1 : 30;
-    return `Para ${activeGoal.para} · Page ${partialLastPage} (1st half) + Para ${prevPara} (last 5 p.)`;
+  // Case 2: One or more pages in this Para completed
+  const firstCompleted = completedPagesInPara.length > 0 ? completedPagesInPara[0] : partialLastPage;
+  const lastCompleted = completedPagesInPara.length > 0 ? completedPagesInPara[completedPagesInPara.length - 1] : partialLastPage;
+
+  let rangeText = "";
+  if (completedPagesInPara.length > 0) {
+    if (firstCompleted === lastCompleted) {
+      rangeText = `Para ${paraNum} · Page ${firstCompleted}`;
+    } else {
+      rangeText = `Para ${paraNum} · Pages ${firstCompleted}–${lastCompleted}`;
+    }
+    if (partialLastPage && partialLastPage > lastCompleted) {
+      rangeText += ` (+ P. ${partialLastPage} 1st half)`;
+    }
+  } else if (partialLastPage) {
+    rangeText = `Para ${paraNum} · Page ${partialLastPage} (1st half)`;
   }
+
+  // If only a few pages (e.g. fewer than 5) are done in this Para, also reinforce with end of previous Para
+  const totalPortionCount = completedPagesInPara.length + (partialLastPage ? 0.5 : 0);
+  if (totalPortionCount < 3 && paraNum > 1) {
+    const prevPara = paraNum - 1;
+    const prevRange = STANDARD_PARA_PAGES[prevPara];
+    if (prevRange) {
+      const prevEnd = prevRange.end;
+      const prevStart = Math.max(prevRange.start, prevEnd - (4 - Math.floor(totalPortionCount)));
+      return `${rangeText} + Para ${prevPara} (p. ${prevStart}–${prevEnd})`;
+    }
+  }
+
+  return rangeText;
 }
 
 function calculateMonthlyMetrics(goal, completedPages, dailyRecords, currentDateStr, completedPortions = []) {
